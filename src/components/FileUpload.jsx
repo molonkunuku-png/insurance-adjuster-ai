@@ -3,6 +3,7 @@ import React, { useState } from 'react'
 function FileUpload({ onUpload }) {
   const [files, setFiles] = useState({ policyPdf: null, damageImages: [] })
   const [dragging, setDragging] = useState(false)
+  const [hover, setHover] = useState(false)
 
   const readAsBase64 = file => {
     return new Promise((resolve, reject) => {
@@ -89,19 +90,20 @@ function FileUpload({ onUpload }) {
   }
 
   return (
-    <div className="border rounded-2xl p-6 mb-4 bg-bg border-border cursor-default">
-      <div className="flex flex-col items-center gap-3 min-h-[200px]">
+    <div className="border rounded-2xl p-6 md:p-8 mb-8 bg-[var(--card)] border-border cursor-default min-h-[300px]">
+      <div className="flex flex-col items-center gap-4 min-h-[220px]">
+        {/* Policy PDF drop zone */}
         <div
           onDrop={e => { e.preventDefault(); setDragging(false); handleDrop(e) }}
-          onDragOver={e => e.preventDefault()}
+          onDragOver={e => { e.preventDefault(); setDragging(true) }}
           onDragEnter={e => setDragging(true)}
           onDragLeave={e => setDragging(false)}
-          className={`flex flex-col items-center justify-center h-[200px] rounded-xl ${
-            dragging ? 'border-accent bg-accent-dim' : 'border-border hover:border-accent transition-colors cursor-pointer'
+          className={`flex flex-col items-center justify-center h-[220px] rounded-2xl ${
+            dragging || hover ? 'border-accent bg-[var(--accent-dim)]' : 'border-border hover:border-accent transition-colors cursor-pointer'
           }`}
         >
-          <p className="text-muted text-sm mb-1">Drop policy PDF here</p>
-          <p className="text-xs muted-2">PDF (.pdf)</p>
+          <p className="text-[var(--muted)] text-sm mb-1">Drop policy PDF here</p>
+          <p className="text-xs">PDF (.pdf)</p>
           <input
             type="file"
             accept=".pdf"
@@ -110,16 +112,17 @@ function FileUpload({ onUpload }) {
           />
         </div>
 
+        {/* Damage images drop zone */}
         <div className="grid grid-cols-3 gap-2">
           {files.damageImages.map((f, i) => (
             <div
               key={i}
-              className="relative group border rounded w-full p-2 bg-bg"
+              className="relative group border rounded w-full p-2 bg-[var(--bg-subtle)]"
             >
               <img
                 src={f.base64}
                 alt={f.file.name}
-                className="w-full h-24 object-cover rounded transition-opacity group-hover:opacity-50"
+                className="w-full h-24 object-cover rounded transition-opacity group-hover:opacity-90"
               />
               <button
                 type="button"
@@ -134,7 +137,9 @@ function FileUpload({ onUpload }) {
           {!files.damageImages.length && (
             <div
               onClick={() => document.querySelector('input[name="damageImages"]')?.click()}
-              className="relative cursor-pointer select-none h-24 w-full border-2 border-border rounded flex items-center justify-center text-muted"
+              className="relative cursor-pointer select-none h-24 w-full border-2 border-border rounded flex items-center justify-center text-[var(--muted)]"
+              onMouseOver={() => setHover(true)}
+              onMouseOut={() => setHover(false)}
             >
               <svg
                 width="20"
@@ -164,13 +169,13 @@ function FileUpload({ onUpload }) {
 
       {files.damageImages.length > 0 && (
         <div className="mt-3 text-sm">
-          <span className="text-muted">+ {files.damageImages.length} images</span>
+          <span className="text-[var(--muted)]">+ {files.damageImages.length} images</span>
         </div>
       )}
 
       {files.policyPdf && (
         <div className="mt-3 flex items-center justify-between text-xs">
-          <span className="text-muted">{files.policyPdf.name}</span>
+          <span className="text-[var(--muted)]">{files.policyPdf.name}</span>
           <button
             type="button"
             onClick={() => setFiles({ ...files, policyPdf: null, damageImages: [] })}
@@ -184,7 +189,7 @@ function FileUpload({ onUpload }) {
       <button
         onClick={() => onUpload({ files, getImagesForAI, getPdfText }) }
         disabled={!files.policyPdf}
-        className={`w-full py-2.5 bg-bg text-fg font-medium rounded hover:bg-bg/90 transition-colors disabled:opacity-50 cursor-not-allowed`}
+        className={`w-full py-3 rounded text-bg font-medium rounded hover:bg-bg/90 transition-colors disabled:opacity-50 cursor-not-allowed mb-2`}
       >
         {files.policyPdf ? 'Submit for AI Analysis' : 'Upload policy PDF (required)'}
       </button>
