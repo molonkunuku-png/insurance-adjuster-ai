@@ -1,198 +1,181 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useCallback } from 'react'
 
 function FileUpload({ onUpload }) {
   const [files, setFiles] = useState({ policyPdf: null, damageImages: [] })
   const [dragging, setDragging] = useState(false)
-  const [hover, setHover] = useState(false)
+  const pdfInput = useRef(null)
+  const imgInput = useRef(null)
 
-  const readAsBase64 = file => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(reader.result)
-      reader.onerror = reject
-      reader.readAsDataURL(file)
-    })
-  }
+  const readAsBase64 = file => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+
+  const addImages = useCallback(async (fileList) => {
+    const incoming = []
+    for (const file of Array.from(fileList)) {
+      if (file.type?.startsWith('image/')) {
+        const base64 = await readAsBase64(file)
+        incoming.push({ file, base64, type: file.type })
+      }
+    }
+    setFiles(prev => ({
+      ...prev,
+      damageImages: [...prev.damageImages, ...incoming].filter(
+        (f, i, arr) => arr.findIndex(x => x.base64 === f.base64) === i
+      ),
+    }))
+  }, [])
+
+  const addPdf = useCallback(async (file) => {
+    if (file && file.type === 'application/pdf') {
+      const base64 = await readAsBase64(file)
+      setFiles(prev => ({ ...prev, policyPdf: file, policyPdfBase64: base64 }))
+    }
+  }, [])
 
   const handleDrop = async (e) => {
     e.preventDefault()
     setDragging(false)
-    const items = e.dataTransfer.items
-    let newPdf = null
-    const newImages = []
-    
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].kind === 'file') {
-        const file = items[i].getAsFile()
-        if (file?.type === 'application/pdf') {
-          newPdf = file
-        } else if (file?.type?.startsWith('image/')) {
-          const base64 = await readAsBase64(file)
-          newImages.push({ file, base64, type: file.type })
-        }
-      }
-    }
-    
-    setFiles(prev => ({
-      ...prev,
-      policyPdf: newPdf !== null ? newPdf : prev.policyPdf,
-      damageImages: [...prev.damageImages, ...newImages].filter(
-        (f, i, arr) => arr.findIndex(x => x.base64 === f.base64) === i
-      ),
-    }))
-  }
-
-  const handleChange = async (e) => {
-    const { name } = e.target
-    const file = e.target.files ? e.target.files[0] : null
-    
-    if (!file) return
-    
-    const read = () => new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(reader.result)
-      reader.onerror = reject
-      reader.readAsDataURL(file)
-    })
-    
-    const base64 = await read()
-    
-    if (name === 'policyPdf') {
-      setFiles(prev => ({
-        ...prev,
-        policyPdf: file,
-      }))
-    } else if (name === 'damageImages') {
-      setFiles(prev => ({
-        ...prev,
-        damageImages: [...prev.damageImages, { file, base64, type: file.type }],
-      }))
+    for (const file of Array.from(e.dataTransfer.files)) {
+      if (file.type === 'application/pdf') await addPdf(file)
+      else if (file.type?.startsWith('image/')) await addImages([file])
     }
   }
 
-  const removeImage = idx => {
-    setFiles(prev => ({
-      ...prev,
-      damageImages: prev.damageImages.filter((_, i) => i !== idx),
-    }))
-  }
+  const removeImage = idx =>
+    setFiles(prev => ({ ...prev, damageImages: prev.damageImages.filter((_, i) => i !== idx) }))
 
-  const getImagesForAI = async () => {
-    return files.damageImages.map(f => ({
-      base64: f.base64.split(',')[1],
-      type: f.type,
-    }))
-  }
+  const reset = () => setFiles({ policyPdf: null, damageImages: [] })
 
-  const getPdfText = () => {
-    if (!files.policyPdf) return ''
-    return '[Policy PDF received - AI will extract relevant terms from visible text/headers]'
-  }
+  const getImagesForAI = async () =>
+    files.damageImages.map(f => ({ base64: f.base64.split(',')[1], type: f.type }))
+
+  const getPdfText = () =>
+    files.policyPdf
+      ? '[Policy PDF attached - AI extracts visible terms, coverage and exclusions]'
+      : ''
+
+  const ready = !!files.policyPdf && files.damageImages.length > 0
 
   return (
-    <div className="border rounded-2xl p-6 md:p-8 mb-8 bg-[var(--card)] border-border cursor-default min-h-[300px]">
-      <div className="flex flex-col items-center gap-4 min-h-[220px]">
-        {/* Policy PDF drop zone */}
-        <div
-          onDrop={e => { e.preventDefault(); setDragging(false); handleDrop(e) }}
-          onDragOver={e => { e.preventDefault(); setDragging(true) }}
-          onDragEnter={e => setDragging(true)}
-          onDragLeave={e => setDragging(false)}
-          className={`flex flex-col items-center justify-center h-[220px] rounded-2xl ${
-            dragging || hover ? 'border-accent bg-[var(--accent-dim)]' : 'border-border hover:border-accent transition-colors cursor-pointer'
+    <div
+      onDragOver={e => { e.preventDefault(); setDragging(true) }}
+      onDragLeave={e => { e.preventDefault(); setDragging(false) }}
+      onDrop={handleDrop}
+      className={`surface relative overflow-hidden p-5 transition-colors sm:p-6 ${
+        dragging ? 'border-[var(--accent)] ring-2 ring-[var(--accent)]/30' : ''
+      }`}
+    >
+      <div className="grid gap-4 md:grid-cols-[1.1fr_1fr]">
+        {/* Policy PDF */}
+        <button
+          type="button"
+          onClick={() => pdfInput.current?.click()}
+          className={`group flex min-h-[190px] flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 text-center transition ${
+            files.policyPdf
+              ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
+              : 'border-[var(--line)] hover:border-[var(--accent)] hover:bg-[var(--bg-2)]'
           }`}
         >
-          <p className="text-[var(--muted)] text-sm mb-1">Drop policy PDF here</p>
-          <p className="text-xs">PDF (.pdf)</p>
-          <input
-            type="file"
-            accept=".pdf"
-            onChange={e => handleChange(e)}
-            style={{ display: 'none' }}
-          />
-        </div>
+          <div className={`mb-3 grid h-12 w-12 place-items-center rounded-2xl transition ${files.policyPdf ? 'bg-[var(--accent)] text-[#0b0d17]' : 'bg-[var(--bg-2)] text-[var(--muted)] group-hover:text-[var(--accent)]'}`}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+              <path d="M14 2v6h6" />
+            </svg>
+          </div>
+          {files.policyPdf ? (
+            <>
+              <div className="text-sm font-semibold text-[var(--accent)]">Policy attached</div>
+              <div className="mt-0.5 max-w-[14rem] truncate text-xs text-[var(--muted)]">{files.policyPdf.name}</div>
+            </>
+          ) : (
+            <>
+              <div className="text-sm font-semibold">Drop policy PDF</div>
+              <div className="mt-0.5 text-xs text-[var(--muted)]">or click to browse · .pdf</div>
+            </>
+          )}
+        </button>
 
-        {/* Damage images drop zone */}
-        <div className="grid grid-cols-3 gap-2">
-          {files.damageImages.map((f, i) => (
-            <div
-              key={i}
-              className="relative group border rounded w-full p-2 bg-[var(--bg-subtle)]"
+        {/* Damage images */}
+        <div className="flex min-h-[190px] flex-col rounded-2xl border-2 border-dashed border-[var(--line)] p-3">
+          {files.damageImages.length === 0 ? (
+            <button
+              type="button"
+              onClick={() => imgInput.current?.click()}
+              className="group flex flex-1 flex-col items-center justify-center text-center"
             >
-              <img
-                src={f.base64}
-                alt={f.file.name}
-                className="w-full h-24 object-cover rounded transition-opacity group-hover:opacity-90"
-              />
+              <div className="mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-[var(--bg-2)] text-[var(--muted)] transition group-hover:text-[var(--grape)]">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                  <path d="M21 15l-5-5L5 21" />
+                </svg>
+              </div>
+              <div className="text-sm font-semibold">Add damage photos</div>
+              <div className="mt-0.5 text-xs text-[var(--muted)]">multiple images · jpg/png</div>
+            </button>
+          ) : (
+            <div className="grid grid-cols-3 gap-2">
+              {files.damageImages.map((f, i) => (
+                <div key={i} className="group relative aspect-square overflow-hidden rounded-xl border border-[var(--line)]">
+                  <img src={f.base64} alt={f.file.name} className="h-full w-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => removeImage(i)}
+                    className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-black/70 text-[10px] text-white opacity-0 transition group-hover:opacity-100"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
               <button
                 type="button"
-                onClick={() => removeImage(i)}
-                className="absolute top-1 right-1 text-xs text-error hover:text-error/80"
+                onClick={() => imgInput.current?.click()}
+                className="grid aspect-square place-items-center rounded-xl border border-dashed border-[var(--line)] text-[var(--muted)] transition hover:border-[var(--grape)] hover:text-[var(--grape)]"
               >
-                ✕
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
               </button>
-            </div>
-          ))}
-
-          {!files.damageImages.length && (
-            <div
-              onClick={() => document.querySelector('input[name="damageImages"]')?.click()}
-              className="relative cursor-pointer select-none h-24 w-full border-2 border-border rounded flex items-center justify-center text-[var(--muted)]"
-              onMouseOver={() => setHover(true)}
-              onMouseOut={() => setHover(false)}
-            >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                className="m-1"
-              >
-                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-                <path d="M17 5H5a2 2 0 00-2 2v3m18 0v3a2 2 0 01-2 2H5a2 2 0 01-2-2v-3" />
-                <path d="M17 5h2m-6 9-5-5m5 5-5 5m5-5h2m6-6v2m-2-6h2m6-3a2 2 0 10-4 0 2 2 0 004 0z" />
-              </svg>
-              <input
-                type="file"
-                name="damageImages"
-                multiple
-                accept="image/*"
-                onChange={e => handleChange(e)}
-                style={{ display: 'none' }}
-              />
             </div>
           )}
         </div>
       </div>
 
-      {files.damageImages.length > 0 && (
-        <div className="mt-3 text-sm">
-          <span className="text-[var(--muted)]">+ {files.damageImages.length} images</span>
-        </div>
-      )}
+      <input ref={pdfInput} type="file" accept=".pdf" className="hidden" onChange={e => { addPdf(e.target.files[0]); e.target.value = '' }} />
+      <input ref={imgInput} type="file" accept="image/*" multiple className="hidden" onChange={e => { addImages(e.target.files); e.target.value = '' }} />
 
-      {files.policyPdf && (
-        <div className="mt-3 flex items-center justify-between text-xs">
-          <span className="text-[var(--muted)]">{files.policyPdf.name}</span>
-          <button
-            type="button"
-            onClick={() => setFiles({ ...files, policyPdf: null, damageImages: [] })}
-            className="text-error hover:text-error/80"
-          >
-            Reset
-          </button>
+      {/* Footer / CTA */}
+      <div className="mt-5 flex flex-col-reverse items-center gap-3 sm:flex-row sm:justify-between">
+        <div className="flex items-center gap-3 text-xs text-[var(--muted)]">
+          {files.damageImages.length > 0 && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--bg-2)] px-2.5 py-1">
+              {files.damageImages.length} photo{files.damageImages.length > 1 ? 's' : ''}
+            </span>
+          )}
+          {(files.policyPdf || files.damageImages.length > 0) && (
+            <button onClick={reset} className="underline transition hover:text-[var(--rose)]">Reset</button>
+          )}
         </div>
+        <button
+          onClick={() => onUpload({ files, getImagesForAI, getPdfText })}
+          disabled={!ready}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] px-5 py-2.5 text-sm font-semibold text-[#0b0d17] shadow-lg shadow-[var(--accent)]/20 transition enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12h14M12 5l7 7-7 7" />
+          </svg>
+          Analyze claim
+        </button>
+      </div>
+      {!ready && (
+        <p className="mt-2 text-right text-[11px] text-[var(--muted)]">
+          Add a policy PDF and at least one damage photo to continue.
+        </p>
       )}
-
-      <button
-        onClick={() => onUpload({ files, getImagesForAI, getPdfText }) }
-        disabled={!files.policyPdf}
-        className={`w-full py-3 rounded text-bg font-medium rounded hover:bg-bg/90 transition-colors disabled:opacity-50 cursor-not-allowed mb-2`}
-      >
-        {files.policyPdf ? 'Submit for AI Analysis' : 'Upload policy PDF (required)'}
-      </button>
     </div>
   )
 }
