@@ -13,7 +13,9 @@ import {
 import {
   sendBetaConfirmation, sendBetaAccess, sendAdminNotification, smtpConfigured,
 } from './email.js'
-import { analyzeDamageAndPolicy, generateReport } from './openai.js'
+import { analyzeDamageAndPolicy, generateReport, askPolicy } from './openai.js'
+import { localAnalyze, localAsk, localReport } from './engine.js'
+import { buildDocx, exportFilename } from './docx.js'
 import {
   generateAccessToken, hashToken, createSession, verifySession,
   parseCookies, sessionCookie, clearSessionCookie,
@@ -67,7 +69,8 @@ export function createApp() {
       ok: true,
       db: dbMode(),
       email: smtpConfigured(),
-      openai: Boolean(config.openaiKey),
+      openai: config.usesOpenAI(),
+      engine: config.usesOpenAI() ? 'openai' : 'local',
       auth: Boolean(config.sessionSecret),
       betaLimit: config.betaLimit,
       env: config.nodeEnv,
@@ -178,15 +181,21 @@ export function createApp() {
   // ---- gated AI endpoints ----
   app.post('/api/analyze', apiLimiter, requireAuth, async (req, res) => {
     try {
-      const { images, policyText } = req.body || {}
-      if (!Array.isArray(images) || images.length === 0) {
-        return res.status(400).json({ error: 'At least one image is required' })
+      const { images, policyText, damageNotes } = req.body || {}
+      const imgs = Array.isArray(images) ? images : []
+      const notes = str(damageNotes, 4000)
+      if (imgs.length === 0 && !notes) {
+        return res.status(400).json({ error: 'At least one image or a damage description is required' })
       }
-      if (images.length > 12) return res.status(400).json({ error: 'Too many images (max 12)' })
-      for (const img of images) {
+      if (imgs.length > 12) return res.status(400).json({ error: 'Too many images (max 12)' })
+      for (const img of imgs) {
         if (!img?.base64 || !img?.type) return res.status(400).json({ error: 'Malformed image payload' })
       }
-      const analysis = await analyzeDamageAndPolicy(images, str(policyText, 20000))
+      const policy = str(policyText, 20000)
+      // With no key we run fully on the deterministic local engine — no AI bills.
+      const analysis = config.usesOpenAI()
+        ? await analyzeDamageAndPolicy(imgs, policy)
+        : localAnalyze({ policyText: policy, damageNotes: notes, imageCount: imgs.length })
       res.json({ analysis })
     } catch (e) {
       console.error('[analyze] error:', e.message)
@@ -198,10 +207,47 @@ export function createApp() {
     try {
       const { analysis } = req.body || {}
       if (!analysis) return res.status(400).json({ error: 'analysis is required' })
-      const markdown = await generateReport(analysis)
+      const markdown = config.usesOpenAI()
+        ? await generateReport(analysis)
+        : localReport(analysis)
       res.json({ markdown })
     } catch (e) {
       console.error('[report] error:', e.message)
+      res.status(500).json({ error: e.message })
+    }
+  })
+
+  app.post('/api/ask', apiLimiter, requireAuth, async (req, res) => {
+    try {
+      const { policyText, question, history } = req.body || {}
+      const q = str(question, 1200)
+      if (!q) return res.status(400).json({ error: 'question is required' })
+      if (policyText && policyText.length > 40000) {
+        return res.status(400).json({ error: 'policy text is too large (max 40,000 characters)' })
+      }
+      const args = {
+        policyText: str(policyText, 40000),
+        question: q,
+        history: Array.isArray(history) ? history.slice(-6) : [],
+      }
+      const response = config.usesOpenAI() ? await askPolicy(args) : localAsk(args)
+      res.json({ response })
+    } catch (e) {
+      console.error('[ask] error:', e.message)
+      res.status(500).json({ error: e.message })
+    }
+  })
+
+  app.post('/api/export/docx', apiLimiter, requireAuth, async (req, res) => {
+    try {
+      const { markdown, analysis } = req.body || {}
+      if (!markdown && !analysis) return res.status(400).json({ error: 'nothing to export' })
+      const buf = await buildDocx({ markdown: str(markdown, 60000), analysis: analysis || null })
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+      res.setHeader('Content-Disposition', `attachment; filename="${exportFilename()}"`)
+      res.send(buf)
+    } catch (e) {
+      console.error('[export] error:', e.message)
       res.status(500).json({ error: e.message })
     }
   })

@@ -8,6 +8,7 @@ import { extractPdfText, renderPdfPages } from '../lib/pdf'
 function FileUpload({ onUpload }) {
   const [files, setFiles] = useState({ policyPdf: null, damageImages: [] })
   const [policy, setPolicy] = useState({ status: 'idle', text: '', images: [], numPages: 0, truncated: false, error: '' })
+  const [notes, setNotes] = useState('')
   const [dragging, setDragging] = useState(false)
   const pdfInput = useRef(null)
   const imgInput = useRef(null)
@@ -69,6 +70,7 @@ function FileUpload({ onUpload }) {
   const reset = () => {
     setFiles({ policyPdf: null, damageImages: [] })
     setPolicy({ status: 'idle', text: '', images: [], numPages: 0, truncated: false, error: '' })
+    setNotes('')
   }
 
   const clearPdf = (e) => {
@@ -91,8 +93,12 @@ function FileUpload({ onUpload }) {
     return policy.text
   }
 
+  const getNotes = () => notes
+
   const pdfBusy = policy.status === 'reading'
-  const ready = !!files.policyPdf && (policy.status === 'ready' || policy.status === 'scanned') && files.damageImages.length > 0
+  const hasAny = (files.policyPdf && (policy.status === 'ready' || policy.status === 'scanned'))
+    || files.damageImages.length > 0
+    || notes.trim() !== ''
 
   return (
     <div
@@ -224,6 +230,22 @@ function FileUpload({ onUpload }) {
       <input ref={pdfInput} type="file" accept=".pdf" className="hidden" onChange={e => { addPdf(e.target.files[0]); e.target.value = '' }} />
       <input ref={imgInput} type="file" accept="image/*" multiple className="hidden" onChange={e => { addImages(e.target.files); e.target.value = '' }} />
 
+      {/* Damage description */}
+      <div className="mt-4">
+        <label htmlFor="damage-notes" className="mb-1.5 block text-xs font-medium text-[var(--muted)]">
+          Describe the damage <span className="text-[var(--muted)]/70">(optional — helps even without photos)</span>
+        </label>
+        <textarea
+          id="damage-notes"
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          rows={2}
+          maxLength={2000}
+          placeholder="e.g. Hail took shingles off the back slope; two windows cracked; gutters dented — moderate."
+          className="w-full resize-y rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-3 py-2 text-sm text-[var(--fg)] outline-none transition placeholder:text-[var(--muted)]/60 focus:border-[var(--accent)]"
+        />
+      </div>
+
       {/* Footer / CTA */}
       <div className="mt-5 flex flex-col-reverse items-center gap-3 sm:flex-row sm:justify-between">
         <div className="flex items-center gap-3 text-xs text-[var(--muted)]">
@@ -232,24 +254,24 @@ function FileUpload({ onUpload }) {
               {files.damageImages.length} photo{files.damageImages.length > 1 ? 's' : ''}
             </span>
           )}
-          {(files.policyPdf || files.damageImages.length > 0) && (
+          {(files.policyPdf || files.damageImages.length > 0 || notes.trim()) && (
             <button onClick={reset} className="inline-flex items-center gap-1 underline transition hover:text-[var(--rose)]">
               <RotateCcw size={11} /> Reset
             </button>
           )}
         </div>
         <button
-          onClick={() => onUpload({ files, getImagesForAI, getPdfText })}
-          disabled={!ready}
+          onClick={() => onUpload({ files, getImagesForAI, getPdfText, getNotes })}
+          disabled={!hasAny}
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] px-5 py-2.5 text-sm font-semibold text-[#0b0d17] shadow-lg shadow-[var(--accent)]/20 transition enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
         >
           <ArrowRight size={16} strokeWidth={2.2} />
           Analyze claim
         </button>
       </div>
-      {!ready && (
+      {!hasAny && (
         <p className="mt-2 text-right text-[11px] text-[var(--muted)]">
-          {pdfBusy ? 'Reading your policy PDF…' : 'Add a policy PDF and at least one damage photo to continue.'}
+          {pdfBusy ? 'Reading your policy PDF…' : 'Add a policy PDF, a damage photo, or a short description to continue.'}
         </p>
       )}
     </div>

@@ -22,3 +22,18 @@ export function apiPost(path, body) {
     body: JSON.stringify(body),
   })
 }
+
+// POST that returns a binary attachment (e.g. .docx). Errors come back as JSON.
+export async function apiPostBlob(path, body) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', Accept: '*/*' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.error || `Request failed (${res.status})`)
+  }
+  return res.blob()
+}

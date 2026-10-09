@@ -1,12 +1,41 @@
 import React, { useMemo, useState } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { FileText, Download, Code2, Eye, Sparkles, RefreshCw } from 'lucide-react'
+import { FileText, Download, Code2, Eye, Sparkles, RefreshCw, Printer, FileDown } from 'lucide-react'
 import Mascot from './Mascot'
+import { exportDocx } from '../lib/ai'
 
 function ReportPreview({ report, onGenerate, loading }) {
   const [showRaw, setShowRaw] = useState(false)
+  const [busy, setBusy] = useState(null) // 'docx' | null
   const markdown = report?.markdown
+
+  const download = () => {
+    const blob = new Blob([markdown || ''], { type: 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `loss-report-${Date.now()}.md`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const downloadDocx = async () => {
+    setBusy('docx')
+    try {
+      const blob = await exportDocx({ markdown: report?.markdown, analysis: report?.analysis })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `themis-loss-report-${Date.now()}.docx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      alert(e.message || 'DOCX export failed')
+    } finally {
+      setBusy(null)
+    }
+  }
 
   // Sanitize the rendered markdown: the report body can contain model output
   // derived from untrusted policy text / photo captions (prompt injection),
@@ -20,16 +49,6 @@ function ReportPreview({ report, onGenerate, loading }) {
       FORBID_ATTR: ['style', 'onerror', 'onload', 'onclick'],
     })
   }, [markdown])
-
-  const download = () => {
-    const blob = new Blob([markdown || ''], { type: 'text/markdown' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `loss-report-${Date.now()}.md`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
 
   return (
     <div className="mt-6">
@@ -45,12 +64,26 @@ function ReportPreview({ report, onGenerate, loading }) {
             )}
           </div>
           {markdown && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2" data-print-hide>
               <button
                 onClick={() => setShowRaw(v => !v)}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--fg)]"
               >
                 {showRaw ? <><Eye size={12} /> Preview</> : <><Code2 size={12} /> Markdown</>}
+              </button>
+              <button
+                onClick={() => window.print()}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--accent)] hover:border-[var(--accent)]"
+              >
+                <Printer size={12} /> PDF
+              </button>
+              <button
+                onClick={downloadDocx}
+                disabled={busy === 'docx'}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--accent)] hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {busy === 'docx' ? <RefreshCw size={12} className="animate-spin" /> : <FileDown size={12} />}
+                DOCX
               </button>
               <button
                 onClick={download}
@@ -89,6 +122,7 @@ function ReportPreview({ report, onGenerate, loading }) {
         onClick={onGenerate}
         disabled={loading}
         className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[var(--grape)] to-[var(--accent)] px-5 py-3 text-sm font-semibold text-[#0b0d17] shadow-lg shadow-[var(--grape)]/20 transition enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+        data-print-hide
       >
         {loading ? (
           <>

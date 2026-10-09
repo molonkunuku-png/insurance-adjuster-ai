@@ -377,10 +377,17 @@ body::after {
 }
 
 /* ---------- Print / report export ---------- */
+/* ---------- Ask your policy ---------- */
+.ask-answer p, .ask-answer ul, .ask-answer ol { margin: 0.4em 0; }
+.ask-answer ul, .ask-answer ol { padding-left: 1.2em; }
+.ask-answer strong { color: var(--fg); }
+.ask-answer code { background: var(--bg-2); padding: 0.15em 0.4em; border-radius: 6px; font-family: "JetBrains Mono", monospace; font-size: 0.9em; }
+
 @media print {
   body::before, body::after, .beam::before { display: none !important; }
   body { background: #fff; color: #000; }
   .surface { box-shadow: none; border-color: #ccc; backdrop-filter: none; }
+  [data-print-hide] { display: none !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {

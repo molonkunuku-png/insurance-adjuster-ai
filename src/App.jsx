@@ -2,13 +2,14 @@ import React, { useState, useEffect, useRef } from 'react'
 import {
   ShieldCheck, Zap, ScanText, Calculator, FileText, Sun, Moon, MoonStar,
   Contrast, LogOut, ChevronDown, ScanEye, DollarSign, ListChecks,
-  AlertTriangle, CheckCircle2,
+  AlertTriangle, CheckCircle2, Clock, Lock, EyeOff,
 } from 'lucide-react'
 import FileUpload from './components/FileUpload'
 import ReportPreview from './components/ReportPreview'
 import LoadingState from './components/LoadingState'
 import GateView from './components/GateView'
 import Mascot from './components/Mascot'
+import AskPanel from './components/AskPanel'
 import { analyzeDamageAndPolicy, generateReport } from './lib/ai'
 import { apiGet, apiPost } from './lib/api'
 
@@ -188,19 +189,20 @@ function App() {
     setReport(null)
   }
 
-  const handleUpload = async ({ getImagesForAI, getPdfText }) => {
+  const handleUpload = async ({ getImagesForAI, getPdfText, getNotes }) => {
     setStep('analyzing')
     setLoading(true)
     try {
       const images = await getImagesForAI()
       const pdfText = getPdfText()
-      if (images.length === 0) {
-        alert('Please upload at least one damage image')
+      const notes = getNotes()
+      if (images.length === 0 && !notes.trim()) {
+        alert('Add at least one damage photo or a short description of the damage')
         setStep('upload')
         return
       }
-      const analysis = await analyzeDamageAndPolicy(images, pdfText)
-      setReport({ analysis })
+      const analysis = await analyzeDamageAndPolicy(images, pdfText, notes)
+      setReport({ analysis, policyText: pdfText || '' })
       setStep('result')
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (e) {
@@ -231,7 +233,7 @@ function App() {
       <header className="sticky top-0 z-20 border-b border-[var(--line)] bg-[color-mix(in_srgb,var(--bg)_82%,transparent)] backdrop-blur-xl">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3.5">
           <Brand />
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" data-print-hide>
             {auth === 'in' && email && (
               <span className="hidden max-w-[14rem] truncate text-[11px] text-[var(--muted)] sm:inline">{email}</span>
             )}
@@ -304,6 +306,18 @@ function UploadView({ onUpload }) {
       <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {FEATURES.map((f, i) => <FeatureCard key={f.title} f={f} i={i} />)}
       </div>
+
+      <div className="fade-in mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] px-5 py-4 text-[12px] text-[var(--muted)]" style={{ animationDelay: '360ms' }}>
+        <span className="inline-flex items-center gap-2">
+          <Lock size={14} className="text-[var(--accent)]" /> Photos processed in your session only
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <EyeOff size={14} className="text-[var(--accent)]" /> We never train models on your claims
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <ShieldCheck size={14} className="text-[var(--accent)]" /> You review and sign the final report
+        </span>
+      </div>
     </div>
   )
 }
@@ -313,7 +327,7 @@ function ResultView({ report, loading, onGenerate, onBack }) {
   const conf = CONFIDENCE[a.confidence] || CONFIDENCE.low
   return (
     <div>
-      <div className="fade-in flex items-center justify-between">
+      <div className="fade-in flex items-center justify-between" data-print-hide>
         <button
           onClick={onBack}
           className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-3.5 py-2 text-sm text-[var(--muted)] transition hover:text-[var(--fg)] hover:border-[var(--accent)]"
@@ -332,6 +346,9 @@ function ResultView({ report, loading, onGenerate, onBack }) {
               <AlertTriangle size={11} /> Needs human review
             </span>
           )}
+          <span className="badge lifecycle-approved">
+            <Clock size={11} /> ≈ 45 min saved vs hand-draft
+          </span>
         </div>
         <p className="mt-1 text-sm text-[var(--muted)]">AI-generated summary from your policy and photos.</p>
       </div>
@@ -357,6 +374,7 @@ function ResultView({ report, loading, onGenerate, onBack }) {
       </div>
 
       <ReportPreview report={report} onGenerate={onGenerate} loading={loading} />
+      <AskPanel policyText={report?.policyText || ''} />
     </div>
   )
 }

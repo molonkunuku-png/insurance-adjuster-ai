@@ -17,6 +17,10 @@ export const config = {
 
   openaiKey: process.env.OPENAI_API_KEY || '',
   openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+  // The local deterministic engine is the default and runs with zero AI bills.
+  // Set AI_PROVIDER=openai to opt into the OpenAI path (requires a funded key).
+  aiProvider: process.env.AI_PROVIDER || 'local',
+  usesOpenAI: () => config.aiProvider === 'openai' && Boolean(config.openaiKey),
 
   resendKey: process.env.RESEND_API_KEY || '',
   resendFrom: process.env.RESEND_FROM || 'Themis <onboarding@resend.dev>',
