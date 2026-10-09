@@ -179,8 +179,8 @@ function FileUpload({ onUpload }) {
         {/* Damage images */}
         <div className={`group flex min-h-[190px] flex-col rounded-2xl border-2 border-dashed p-3 transition-colors ${
           files.damageImages.length > 0
-            ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
-            : 'border-[var(--line)] hover:border-[var(--accent)] hover:bg-[var(--bg-2)]'
+            ? 'border-[var(--grape)] bg-[var(--grape-soft)]'
+            : 'border-[var(--line)] hover:border-[var(--grape)] hover:bg-[var(--bg-2)]'
         }`}>
           {files.damageImages.length === 0 ? (
             <button
@@ -188,7 +188,7 @@ function FileUpload({ onUpload }) {
               onClick={() => imgInput.current?.click()}
               className="group flex flex-1 flex-col items-center justify-center text-center"
             >
-              <div className="mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-[var(--bg-2)] text-[var(--muted)] transition group-hover:text-[var(--accent)]">
+              <div className="mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-[var(--bg-2)] text-[var(--muted)] transition group-hover:text-[var(--grape)]">
                 <ImagePlus size={22} />
               </div>
               <div className="text-sm font-semibold">Add damage photos</div>
@@ -212,7 +212,7 @@ function FileUpload({ onUpload }) {
               <button
                 type="button"
                 onClick={() => imgInput.current?.click()}
-                className="grid aspect-square place-items-center rounded-xl border border-dashed border-[var(--line)] text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                className="grid aspect-square place-items-center rounded-xl border border-dashed border-[var(--line)] text-[var(--muted)] transition hover:border-[var(--grape)] hover:text-[var(--grape)]"
               >
                 <Plus size={18} />
               </button>
