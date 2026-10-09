@@ -1,15 +1,32 @@
 import React from 'react'
 import BetaForm from './BetaForm'
+import SignInForm from './SignInForm'
 
+// Only genuine failure states get a message. A successful verify redirects with
+// ?access=ok but the session cookie makes the app render, so no message needed.
 const MESSAGES = {
-  ok: { tone: 'ok', text: 'Access confirmed — loading your workspace…' },
   invalid: { tone: 'err', text: 'That access link is invalid. Request a new one below.' },
   expired: { tone: 'err', text: 'That access link has expired. Request a new one below.' },
   error: { tone: 'err', text: 'Something went wrong verifying your link. Request a new one below.' },
 }
 
-export default function GateView({ accessStatus }) {
+function Tab({ active, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-lg px-3 py-2 text-[13px] font-medium transition ${
+        active ? 'bg-[var(--bg)] text-[var(--fg)] shadow-sm' : 'text-[var(--muted)] hover:text-[var(--fg)]'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+export default function GateView({ accessStatus, mode = 'signup', onModeChange }) {
   const msg = accessStatus ? MESSAGES[accessStatus] : null
+  const signin = mode === 'signin'
   return (
     <div className="fade-in mx-auto max-w-md pt-4 text-center">
       <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-[var(--accent)] to-[var(--grape)] shadow-lg shadow-[var(--accent)]/20">
@@ -18,26 +35,25 @@ export default function GateView({ accessStatus }) {
           <path d="M8 10V7a4 4 0 0 1 8 0v3" />
         </svg>
       </div>
-      <h1 className="mt-5 text-3xl font-extrabold leading-tight tracking-tight">
-        Beta access required
-      </h1>
+      <h1 className="mt-5 text-3xl font-extrabold leading-tight tracking-tight">Beta access required</h1>
       <p className="mx-auto mt-3 max-w-sm text-[15px] leading-relaxed text-[var(--muted)]">
-        Themis is in private beta. Request access and we'll email you a link that opens
-        your workspace instantly.
+        Themis is in private beta. {signin
+          ? "Enter your email and we'll send you a link to get back in."
+          : "Request access and we'll email you a link that opens your workspace instantly."}
       </p>
 
       {msg && (
-        <div className={`mt-5 rounded-xl border px-4 py-3 text-sm ${
-          msg.tone === 'ok'
-            ? 'border-[var(--accent)]/40 bg-[var(--accent-soft)] text-[var(--accent)]'
-            : 'border-[var(--rose)]/40 bg-[var(--rose)]/10 text-[var(--rose)]'
-        }`}>
+        <div className="mt-5 rounded-xl border border-[var(--rose)]/40 bg-[var(--rose)]/10 px-4 py-3 text-sm text-[var(--rose)]">
           {msg.text}
         </div>
       )}
 
       <div className="surface mt-6 p-6 text-left">
-        <BetaForm />
+        <div className="mb-5 grid grid-cols-2 gap-1 rounded-xl bg-[var(--bg-2)] p-1">
+          <Tab active={!signin} onClick={() => onModeChange?.('signup')}>Request access</Tab>
+          <Tab active={signin} onClick={() => onModeChange?.('signin')}>Sign in</Tab>
+        </div>
+        {signin ? <SignInForm /> : <BetaForm />}
       </div>
     </div>
   )

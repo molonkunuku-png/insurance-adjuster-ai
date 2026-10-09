@@ -32,6 +32,19 @@ try {
     ok('fallback link signs in (302 + cookie)', verify.status === 302 && cookie.includes('themis_session='), `status=${verify.status}`)
     const me = await fetch(`${BASE}/api/auth/me`, { headers: { cookie: cookie.split(';')[0] } }).then(r => r.json())
     ok('session authed as correct email', me.authorized === true && me.email === 'fallback@example.com', JSON.stringify(me))
+
+    // Sign-in path: resend for an existing invited lead must mint a fresh link.
+    const resend = await fetch(`${BASE}/api/beta/resend`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'fallback@example.com' }),
+    })
+    const rdata = await resend.json()
+    ok('sign-in (resend) returns fresh fallback link', typeof rdata.accessUrl === 'string' && rdata.accessUrl.includes('token='), JSON.stringify(rdata))
+    if (rdata.accessUrl) {
+      const tok2 = new URL(rdata.accessUrl).searchParams.get('token')
+      const v2 = await fetch(`${BASE}/api/access/verify?token=${tok2}`, { redirect: 'manual' })
+      ok('fresh sign-in link works (302)', v2.status === 302, `status=${v2.status}`)
+    }
   }
 } finally {
   server.close()

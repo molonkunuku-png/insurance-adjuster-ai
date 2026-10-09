@@ -104,6 +104,7 @@ function App() {
   const [auth, setAuth] = useState('loading') // loading | in | out
   const [email, setEmail] = useState(null)
   const [accessStatus, setAccessStatus] = useState(null)
+  const [gateMode, setGateMode] = useState('signup') // signup | signin
 
   useEffect(() => {
     document.body.classList.toggle('light-theme', theme === 'light')
@@ -119,7 +120,11 @@ function App() {
       window.history.replaceState({}, '', window.location.pathname)
     }
     apiGet('/api/auth/me')
-      .then(d => { setAuth(d.authorized ? 'in' : 'out'); setEmail(d.email || null) })
+      .then(d => {
+        setAuth(d.authorized ? 'in' : 'out')
+        setEmail(d.email || null)
+        if (d.authorized) setAccessStatus(null)
+      })
       .catch(() => setAuth('out'))
   }, [])
 
@@ -127,6 +132,8 @@ function App() {
     try { await apiPost('/api/auth/logout', {}) } catch { /* ignore */ }
     setAuth('out')
     setEmail(null)
+    setAccessStatus(null)
+    setGateMode('signin')
     setStep('upload')
     setReport(null)
   }
@@ -193,7 +200,7 @@ function App() {
 
       <main className="mx-auto max-w-5xl px-5 pb-24 pt-12">
         {auth === 'loading' && <Splash />}
-        {auth === 'out' && <GateView accessStatus={accessStatus} />}
+        {auth === 'out' && <GateView accessStatus={accessStatus} mode={gateMode} onModeChange={setGateMode} />}
         {auth === 'in' && (
           <>
             {step === 'upload' && <UploadView onUpload={handleUpload} />}
