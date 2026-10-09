@@ -54,7 +54,7 @@ export async function analyzeDamageAndPolicy(imagesBase64, pdfText) {
   let analysis
   try {
     analysis = JSON.parse(content)
-  } catch (e) {
+  } catch {
     analysis = {
       coverage: content.substring(0, 500),
       damage: 'See detailed analysis',

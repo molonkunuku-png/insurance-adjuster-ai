@@ -111,6 +111,24 @@ body::before {
   box-shadow: 0 18px 50px -30px rgba(0, 0, 0, 0.7);
 }
 
+/* ---------- Form input ---------- */
+.input {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  color: var(--fg);
+  padding: 0.55rem 0.75rem;
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.input::placeholder { color: var(--muted); }
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
 /* Custom arbitrary-value helpers used in JSX */
 .bg-\[var\(--accent-dim\)\] { background: var(--accent-soft); }
 .bg-\[var\(--primary-dim\)\] { background: var(--grape-soft); }
