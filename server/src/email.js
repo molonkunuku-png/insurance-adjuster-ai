@@ -131,6 +131,41 @@ Didn't request this? Just ignore this email.
 — Themis Adjuster AI`
 }
 
+export function betaAccessHtml({ name, accessUrl }) {
+  const first = escapeHtml((name || 'there').split(' ')[0])
+  const body = `
+    <h1 style="margin:0 0 10px;font-family:${FONT};font-size:22px;line-height:1.3;font-weight:700;color:${INK};">You're in, ${first}.</h1>
+    <p style="margin:0 0 16px;font-family:${FONT};font-size:15px;line-height:1.7;color:${MUTED};">
+      Your Themis beta access is ready. Click below to open your account — the link
+      signs you in automatically.
+    </p>
+    <p style="margin:0 0 26px;font-family:${FONT};font-size:15px;line-height:1.7;color:${MUTED};">
+      Turn damage photos and a policy document into an adjuster-ready loss report draft.
+    </p>
+    ${button(accessUrl, 'Open Themis')}
+    <p style="margin:26px 0 0;font-family:${FONT};font-size:12px;line-height:1.6;color:${FAINT};">
+      This link expires in ${config.tokenTtlDays} days. If it stops working, request a new one
+      from the sign-in page. Themis drafts documents for review — it is not a binding
+      estimate and always requires a human adjuster.
+    </p>`
+  return shell(body, 'Your Themis beta access is ready — open your account.')
+}
+
+export function betaAccessText({ name, accessUrl }) {
+  const first = (name || 'there').split(' ')[0]
+  return `You're in, ${first}.
+
+Your Themis beta access is ready. Open your account (this signs you in automatically):
+${accessUrl}
+
+Turn damage photos and a policy document into an adjuster-ready loss report draft.
+
+This link expires in ${config.tokenTtlDays} days. If it stops working, request a new one from the sign-in page.
+
+Themis drafts documents for review — it is not a binding estimate and always requires a human adjuster.
+— Themis Adjuster AI`
+}
+
 export function adminNotificationHtml({ name, email, role, claimsPerMonth, created }) {
   const row = (label, value) => `
       <tr>
@@ -166,6 +201,16 @@ export async function sendBetaConfirmation({ name, email }) {
     subject: "You're on the Themis beta list",
     html: betaConfirmationHtml({ name }),
     text: betaConfirmationText({ name }),
+  })
+}
+
+export async function sendBetaAccess({ name, email, accessUrl }) {
+  return send({
+    from: config.resendFrom,
+    to: email,
+    subject: 'Your Themis beta access',
+    html: betaAccessHtml({ name, accessUrl }),
+    text: betaAccessText({ name, accessUrl }),
   })
 }
 

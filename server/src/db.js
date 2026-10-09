@@ -26,6 +26,13 @@ CREATE TABLE IF NOT EXISTS beta_leads (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS beta_leads_email_idx ON beta_leads (lower(email));
 
+-- Access / invite columns (added incrementally for existing deployments)
+ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS access_token_hash TEXT;
+ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMPTZ;
+ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS invited_at TIMESTAMPTZ;
+ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
+ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS uses INTEGER NOT NULL DEFAULT 0;
+
 CREATE TABLE IF NOT EXISTS claims (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email         TEXT,
@@ -72,6 +79,11 @@ export async function saveBetaLead({ name, email, role, claimsPerMonth, source }
       claimsPerMonth,
       source: source || 'themis-beta',
       status: 'pending',
+      accessTokenHash: null,
+      tokenExpiresAt: null,
+      invitedAt: null,
+      lastLoginAt: null,
+      uses: 0,
       createdAt: new Date().toISOString(),
     }
     memory.betaLeads.push(lead)
@@ -91,10 +103,88 @@ export async function saveBetaLead({ name, email, role, claimsPerMonth, source }
   return { lead: row, created: row.created }
 }
 
+export async function countInvited() {
+  if (useMemory) {
+    return memory.betaLeads.filter(l => l.status === 'invited' || l.status === 'active').length
+  }
+  const res = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM beta_leads WHERE status IN ('invited','active')`
+  )
+  return res.rows[0].n
+}
+
+export async function approveLead({ email, tokenHash, expiresAt }) {
+  if (useMemory) {
+    const lead = memory.betaLeads.find(l => l.email.toLowerCase() === email.toLowerCase())
+    if (!lead) return null
+    lead.status = 'invited'
+    lead.accessTokenHash = tokenHash
+    lead.tokenExpiresAt = expiresAt
+    lead.invitedAt = new Date().toISOString()
+    return lead
+  }
+  const res = await pool.query(
+    `UPDATE beta_leads
+     SET status = 'invited', access_token_hash = $2, token_expires_at = $3, invited_at = now()
+     WHERE lower(email) = lower($1)
+     RETURNING id, name, email, status`,
+    [email, tokenHash, expiresAt]
+  )
+  return res.rows[0] || null
+}
+
+export async function findLeadByTokenHash(tokenHash) {
+  if (useMemory) {
+    return memory.betaLeads.find(l => l.accessTokenHash === tokenHash) || null
+  }
+  const res = await pool.query(
+    `SELECT id, name, email, status, token_expires_at, uses
+     FROM beta_leads WHERE access_token_hash = $1`,
+    [tokenHash]
+  )
+  return res.rows[0] || null
+}
+
+export async function findLeadByEmail(email) {
+  if (useMemory) {
+    return memory.betaLeads.find(l => l.email.toLowerCase() === email.toLowerCase()) || null
+  }
+  const res = await pool.query(
+    `SELECT id, name, email, status, token_expires_at FROM beta_leads WHERE lower(email) = lower($1)`,
+    [email]
+  )
+  return res.rows[0] || null
+}
+
+export async function markLogin(id) {
+  if (useMemory) {
+    const lead = memory.betaLeads.find(l => l.id === id)
+    if (lead) { lead.lastLoginAt = new Date().toISOString(); lead.uses = (lead.uses || 0) + 1; lead.status = 'active' }
+    return
+  }
+  await pool.query(
+    `UPDATE beta_leads SET last_login_at = now(), uses = uses + 1, status = 'active' WHERE id = $1`,
+    [id]
+  )
+}
+
+export async function revokeLead(email) {
+  if (useMemory) {
+    const lead = memory.betaLeads.find(l => l.email.toLowerCase() === email.toLowerCase())
+    if (lead) { lead.status = 'pending'; lead.accessTokenHash = null; lead.tokenExpiresAt = null }
+    return
+  }
+  await pool.query(
+    `UPDATE beta_leads SET status = 'pending', access_token_hash = NULL, token_expires_at = NULL
+     WHERE lower(email) = lower($1)`,
+    [email]
+  )
+}
+
 export async function listBetaLeads(limit = 200) {
   if (useMemory) return memory.betaLeads.slice(0, limit)
   const res = await pool.query(
-    `SELECT id, name, email, role, claims_per_month, status, created_at
+    `SELECT id, name, email, role, claims_per_month, status, created_at, invited_at, last_login_at, uses
      FROM beta_leads ORDER BY created_at DESC LIMIT $1`,
     [limit]
   )

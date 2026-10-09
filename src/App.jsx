@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react'
 import FileUpload from './components/FileUpload'
 import ReportPreview from './components/ReportPreview'
 import LoadingState from './components/LoadingState'
-import BetaSignup from './components/BetaSignup'
+import GateView from './components/GateView'
 import { analyzeDamageAndPolicy, generateReport } from './lib/ai'
+import { apiGet, apiPost } from './lib/api'
 
 function Brand() {
   return (
@@ -86,18 +87,49 @@ function StatCard({ label, value, tint, icon, delay }) {
   )
 }
 
+function Splash() {
+  return (
+    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-center">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--line)] border-t-[var(--accent)]" />
+      <p className="text-sm text-[var(--muted)]">Loading…</p>
+    </div>
+  )
+}
+
 function App() {
   const [step, setStep] = useState('upload')
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(false)
-  const [showBeta, setShowBeta] = useState(false)
   const [theme, setTheme] = useState(() => localStorage.getItem('themis-theme') || 'dark')
+  const [auth, setAuth] = useState('loading') // loading | in | out
+  const [email, setEmail] = useState(null)
+  const [accessStatus, setAccessStatus] = useState(null)
 
   useEffect(() => {
     document.body.classList.toggle('light-theme', theme === 'light')
     document.body.classList.toggle('dark-theme', theme === 'dark')
     localStorage.setItem('themis-theme', theme)
   }, [theme])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const a = params.get('access')
+    if (a) {
+      setAccessStatus(a)
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+    apiGet('/api/auth/me')
+      .then(d => { setAuth(d.authorized ? 'in' : 'out'); setEmail(d.email || null) })
+      .catch(() => setAuth('out'))
+  }, [])
+
+  const logout = async () => {
+    try { await apiPost('/api/auth/logout', {}) } catch { /* ignore */ }
+    setAuth('out')
+    setEmail(null)
+    setStep('upload')
+    setReport(null)
+  }
 
   const handleUpload = async ({ getImagesForAI, getPdfText }) => {
     setStep('analyzing')
@@ -139,45 +171,53 @@ function App() {
 
   return (
     <div className="relative min-h-screen">
-      {/* Header */}
       <header className="sticky top-0 z-20 border-b border-[var(--line)] bg-[color-mix(in_srgb,var(--bg)_82%,transparent)] backdrop-blur-xl">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3.5">
           <Brand />
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowBeta(true)}
-              className="hidden items-center gap-2 rounded-xl bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] px-3.5 py-2 text-[13px] font-semibold text-[#0b0d17] transition hover:brightness-110 sm:inline-flex"
-            >
-              Join beta
-            </button>
+            {auth === 'in' && email && (
+              <span className="hidden max-w-[14rem] truncate text-[11px] text-[var(--muted)] sm:inline">{email}</span>
+            )}
+            {auth === 'in' && (
+              <button
+                onClick={logout}
+                className="rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-3 py-2 text-[13px] text-[var(--muted)] transition hover:text-[var(--fg)] hover:border-[var(--accent)]"
+              >
+                Sign out
+              </button>
+            )}
             <ThemeToggle theme={theme} onToggle={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-5xl px-5 pb-24 pt-12">
-        {step === 'upload' && <UploadView onUpload={handleUpload} onJoinBeta={() => setShowBeta(true)} />}
-        {step === 'analyzing' && <LoadingState />}
-        {step === 'result' && (
-          <ResultView
-            report={report}
-            loading={loading}
-            onGenerate={handleGenerate}
-            onBack={() => { setStep('upload'); setReport(null); }}
-          />
+        {auth === 'loading' && <Splash />}
+        {auth === 'out' && <GateView accessStatus={accessStatus} />}
+        {auth === 'in' && (
+          <>
+            {step === 'upload' && <UploadView onUpload={handleUpload} />}
+            {step === 'analyzing' && <LoadingState />}
+            {step === 'result' && (
+              <ResultView
+                report={report}
+                loading={loading}
+                onGenerate={handleGenerate}
+                onBack={() => { setStep('upload'); setReport(null); }}
+              />
+            )}
+          </>
         )}
       </main>
 
       <footer className="border-t border-[var(--line)] py-6 text-center text-xs text-[var(--muted)]">
         Themis Adjuster AI · Built for faster, fairer claims
       </footer>
-
-      {showBeta && <BetaSignup onClose={() => setShowBeta(false)} />}
     </div>
   )
 }
 
-function UploadView({ onUpload, onJoinBeta }) {
+function UploadView({ onUpload }) {
   return (
     <div>
       <div className="fade-in mx-auto max-w-2xl text-center" style={{ animationDelay: '0ms' }}>
@@ -206,29 +246,6 @@ function UploadView({ onUpload, onJoinBeta }) {
 
       <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {FEATURES.map((f, i) => <FeatureCard key={f.title} f={f} i={i} />)}
-      </div>
-
-      <div className="surface fade-in mt-6 flex flex-col items-start justify-between gap-4 p-6 sm:flex-row sm:items-center" style={{ animationDelay: '420ms' }}>
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-soft)] px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--accent)]">
-              Beta · 10 spots
-            </span>
-          </div>
-          <h3 className="mt-2 text-lg font-bold tracking-tight">Are you an adjuster? Try it free.</h3>
-          <p className="mt-1 max-w-md text-sm text-[var(--muted)]">
-            We're recruiting 10 claims professionals to test Themis. Free lifetime access in exchange for honest feedback.
-          </p>
-        </div>
-        <button
-          onClick={onJoinBeta}
-          className="inline-flex flex-shrink-0 items-center gap-2 rounded-xl bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] px-5 py-2.5 text-sm font-semibold text-[#0b0d17] transition hover:brightness-110"
-        >
-          Request access
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12h14M12 5l7 7-7 7" />
-          </svg>
-        </button>
       </div>
     </div>
   )
