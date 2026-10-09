@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { apiPost } from '../lib/api'
 
-export default function SignInForm() {
+export default function SignInForm({ onRequestAccess }) {
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState('idle') // idle | sending | done | error
   const [accessUrl, setAccessUrl] = useState(null)
@@ -45,9 +45,17 @@ export default function SignInForm() {
             </a>
           </>
         ) : (
-          <p className="mt-1 text-sm text-[var(--muted)]">
-            We sent a fresh sign-in link to <span className="text-[var(--fg)]">{email}</span>. Click it to get back in.
-          </p>
+          <>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              We sent a fresh sign-in link to <span className="text-[var(--fg)]">{email}</span>. Click it to get back in.
+            </p>
+            <p className="mt-3 text-xs text-[var(--muted)]">
+              Don't have access yet?{' '}
+              <button type="button" onClick={onRequestAccess} className="text-[var(--accent)] underline">
+                Request it
+              </button>
+            </p>
+          </>
         )}
       </div>
     )

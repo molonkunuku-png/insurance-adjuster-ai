@@ -53,7 +53,7 @@ export default function GateView({ accessStatus, mode = 'signup', onModeChange }
           <Tab active={!signin} onClick={() => onModeChange?.('signup')}>Request access</Tab>
           <Tab active={signin} onClick={() => onModeChange?.('signin')}>Sign in</Tab>
         </div>
-        {signin ? <SignInForm /> : <BetaForm />}
+        {signin ? <SignInForm onRequestAccess={() => onModeChange?.('signup')} /> : <BetaForm />}
       </div>
     </div>
   )
