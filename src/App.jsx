@@ -1,19 +1,29 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
+import {
+  ShieldCheck, Zap, ScanText, Calculator, FileText, Sun, Moon, MoonStar,
+  Contrast, LogOut, ChevronDown, ScanEye, DollarSign, ListChecks,
+  AlertTriangle, CheckCircle2,
+} from 'lucide-react'
 import FileUpload from './components/FileUpload'
 import ReportPreview from './components/ReportPreview'
 import LoadingState from './components/LoadingState'
 import GateView from './components/GateView'
+import Mascot from './components/Mascot'
 import { analyzeDamageAndPolicy, generateReport } from './lib/ai'
 import { apiGet, apiPost } from './lib/api'
+
+const THEMES = [
+  { id: 'dark', label: 'Dark', Icon: Moon },
+  { id: 'light', label: 'Light', Icon: Sun },
+  { id: 'dim', label: 'Dim (OLED)', Icon: MoonStar },
+  { id: 'contrast', label: 'High contrast', Icon: Contrast },
+]
 
 function Brand() {
   return (
     <div className="flex items-center gap-2.5">
       <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--grape)] shadow-lg shadow-[var(--accent)]/20">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0b0d17" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-          <path d="M9 12l2 2 4-4" />
-        </svg>
+        <ShieldCheck size={20} strokeWidth={2.4} className="text-[#0b0d17]" />
       </div>
       <div className="leading-tight">
         <div className="text-[15px] font-bold tracking-tight">Themis</div>
@@ -23,35 +33,62 @@ function Brand() {
   )
 }
 
-function ThemeToggle({ theme, onToggle }) {
+function ThemeToggle({ theme, onSelect }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  const current = THEMES.find(t => t.id === theme) || THEMES[0]
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+
   return (
-    <button
-      onClick={onToggle}
-      aria-label="Toggle theme"
-      className="grid h-9 w-9 place-items-center rounded-xl border border-[var(--line)] bg-[var(--bg-2)] text-[var(--muted)] transition hover:text-[var(--fg)] hover:border-[var(--accent)]"
-    >
-      {theme === 'dark' ? (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-          <circle cx="12" cy="12" r="4" />
-          <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-        </svg>
-      ) : (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
-        </svg>
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        aria-label="Change theme"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="flex h-9 items-center gap-1.5 rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-2.5 text-[var(--muted)] transition hover:text-[var(--fg)] hover:border-[var(--accent)]"
+      >
+        <current.Icon size={16} />
+        <ChevronDown size={13} className={`transition ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div role="menu" className="surface absolute right-0 z-30 mt-2 w-44 overflow-hidden p-1">
+          {THEMES.map(t => (
+            <button
+              key={t.id}
+              role="menuitemradio"
+              aria-checked={t.id === theme}
+              onClick={() => { onSelect(t.id); setOpen(false) }}
+              className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] transition ${
+                t.id === theme ? 'bg-[var(--bg-2)] text-[var(--fg)]' : 'text-[var(--muted)] hover:text-[var(--fg)]'
+              }`}
+            >
+              <t.Icon size={15} />
+              {t.label}
+              {t.id === theme && <CheckCircle2 size={13} className="ml-auto text-[var(--accent)]" />}
+            </button>
+          ))}
+        </div>
       )}
-    </button>
+    </div>
   )
 }
 
 const FEATURES = [
-  { icon: 'M13 2L3 14h9l-1 8 10-12h-9l1-8z', tint: 'var(--accent)', title: 'Instant Analysis', desc: 'Vision AI reads damage in seconds, not hours.' },
-  { icon: 'M3 7h18v12H3zM3 7l9 6 9-6', tint: 'var(--grape)', title: 'Policy Parsing', desc: 'Coverage & exclusions extracted automatically.' },
-  { icon: 'M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6', tint: 'var(--amber)', title: 'Cost Estimate', desc: 'Grounded repair & replacement valuation.' },
-  { icon: 'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6', tint: 'var(--rose)', title: 'Signed Report', desc: 'Client-ready loss report in one click.' },
+  { Icon: Zap, tint: 'var(--accent)', title: 'Instant Analysis', desc: 'Vision AI reads damage in seconds, not hours.' },
+  { Icon: ScanText, tint: 'var(--grape)', title: 'Policy Parsing', desc: 'Coverage & exclusions extracted automatically.' },
+  { Icon: Calculator, tint: 'var(--amber)', title: 'Cost Estimate', desc: 'Grounded repair & replacement valuation.' },
+  { Icon: FileText, tint: 'var(--rose)', title: 'Signed Report', desc: 'Client-ready loss report in one click.' },
 ]
 
 function FeatureCard({ f, i }) {
+  const { Icon } = f
   return (
     <div
       className="surface fade-in group p-5 transition-transform duration-300 hover:-translate-y-1"
@@ -61,9 +98,7 @@ function FeatureCard({ f, i }) {
         className="mb-3 grid h-10 w-10 place-items-center rounded-xl"
         style={{ background: `color-mix(in srgb, ${f.tint} 14%, transparent)`, color: f.tint }}
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d={f.icon} />
-        </svg>
+        <Icon size={20} />
       </div>
       <div className="text-sm font-semibold">{f.title}</div>
       <div className="mt-1 text-xs leading-relaxed text-[var(--muted)]">{f.desc}</div>
@@ -71,15 +106,11 @@ function FeatureCard({ f, i }) {
   )
 }
 
-function StatCard({ label, value, tint, icon, delay }) {
+function StatCard({ label, value, tint, Icon, delay }) {
   return (
     <div className="surface fade-in p-5" style={{ animationDelay: `${delay}ms` }}>
       <div className="mb-2 flex items-center gap-2 text-[var(--muted)]">
-        <span style={{ color: tint }}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d={icon} />
-          </svg>
-        </span>
+        <span style={{ color: tint }}><Icon size={15} /></span>
         <span className="text-[11px] font-semibold uppercase tracking-wider">{label}</span>
       </div>
       <div className="text-sm leading-relaxed text-[var(--fg)]">{value || '—'}</div>
@@ -90,10 +121,16 @@ function StatCard({ label, value, tint, icon, delay }) {
 function Splash() {
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-center">
-      <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--line)] border-t-[var(--accent)]" />
+      <Mascot size={84} mood="idle" />
       <p className="text-sm text-[var(--muted)]">Loading…</p>
     </div>
   )
+}
+
+const CONFIDENCE = {
+  high: { cls: 'lifecycle-approved', label: 'High confidence' },
+  medium: { cls: 'lifecycle-reviewing', label: 'Medium confidence' },
+  low: { cls: 'lifecycle-new', label: 'Low confidence' },
 }
 
 function App() {
@@ -107,10 +144,23 @@ function App() {
   const [gateMode, setGateMode] = useState('signup') // signup | signin
 
   useEffect(() => {
-    document.body.classList.toggle('light-theme', theme === 'light')
-    document.body.classList.toggle('dark-theme', theme === 'dark')
+    const b = document.body
+    ;['dark-theme', 'light-theme', 'contrast-theme', 'dim-theme'].forEach(c => b.classList.remove(c))
+    b.classList.add(`${theme}-theme`)
     localStorage.setItem('themis-theme', theme)
   }, [theme])
+
+  // Cursor spotlight
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const onMove = (e) => {
+      const root = document.documentElement
+      root.style.setProperty('--mx', `${(e.clientX / window.innerWidth) * 100}%`)
+      root.style.setProperty('--my', `${(e.clientY / window.innerHeight) * 100}%`)
+    }
+    window.addEventListener('pointermove', onMove, { passive: true })
+    return () => window.removeEventListener('pointermove', onMove)
+  }, [])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -188,12 +238,12 @@ function App() {
             {auth === 'in' && (
               <button
                 onClick={logout}
-                className="rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-3 py-2 text-[13px] text-[var(--muted)] transition hover:text-[var(--fg)] hover:border-[var(--accent)]"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-3 py-2 text-[13px] text-[var(--muted)] transition hover:text-[var(--fg)] hover:border-[var(--accent)]"
               >
-                Sign out
+                <LogOut size={14} /> <span className="hidden sm:inline">Sign out</span>
               </button>
             )}
-            <ThemeToggle theme={theme} onToggle={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
+            <ThemeToggle theme={theme} onSelect={setTheme} />
           </div>
         </div>
       </header>
@@ -260,6 +310,7 @@ function UploadView({ onUpload }) {
 
 function ResultView({ report, loading, onGenerate, onBack }) {
   const a = report?.analysis || {}
+  const conf = CONFIDENCE[a.confidence] || CONFIDENCE.low
   return (
     <div>
       <div className="fade-in flex items-center justify-between">
@@ -267,28 +318,31 @@ function ResultView({ report, loading, onGenerate, onBack }) {
           onClick={onBack}
           className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-3.5 py-2 text-sm text-[var(--muted)] transition hover:text-[var(--fg)] hover:border-[var(--accent)]"
         >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M19 12H5M12 19l-7-7 7-7" />
-          </svg>
-          New analysis
+          ← New analysis
         </button>
         <span className="text-xs text-[var(--muted)]">Analysis complete</span>
       </div>
 
       <div className="fade-in mt-6" style={{ animationDelay: '60ms' }}>
-        <h2 className="text-2xl font-bold tracking-tight">Loss assessment</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-2xl font-bold tracking-tight">Loss assessment</h2>
+          <span className={`badge ${conf.cls}`}>{conf.label}</span>
+          {a.needsReview && (
+            <span className="badge lifecycle-new" style={{ color: 'var(--danger)', background: 'var(--danger-soft)' }}>
+              <AlertTriangle size={11} /> Needs human review
+            </span>
+          )}
+        </div>
         <p className="mt-1 text-sm text-[var(--muted)]">AI-generated summary from your policy and photos.</p>
       </div>
 
       <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-        <StatCard label="Coverage" value={a.coverage} tint="var(--accent)" icon="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" delay={100} />
-        <StatCard label="Damage" value={a.damage} tint="var(--grape)" icon="M4 4h16v16H4zM9 9l6 6M15 9l-6 6" delay={160} />
-        <StatCard label="Estimated value" value={a.estimatedValue} tint="var(--amber)" icon="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" delay={220} />
+        <StatCard label="Coverage" value={a.coverage} tint="var(--accent)" Icon={ShieldCheck} delay={100} />
+        <StatCard label="Damage" value={a.damage} tint="var(--grape)" Icon={ScanEye} delay={160} />
+        <StatCard label="Estimated value" value={a.estimatedValue} tint="var(--amber)" Icon={DollarSign} delay={220} />
         <div className="surface fade-in p-5" style={{ animationDelay: '280ms' }}>
-          <div className="mb-2 flex items-center gap-2 text-[var(--rose)]">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
-            </svg>
+          <div className="mb-2 flex items-center gap-2 text-[var(--info)]">
+            <ListChecks size={15} />
             <span className="text-[11px] font-semibold uppercase tracking-wider">Next steps</span>
           </div>
           <ul className="space-y-1.5">

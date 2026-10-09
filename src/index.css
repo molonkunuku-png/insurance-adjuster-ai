@@ -3,6 +3,9 @@
 /* ==========================================
    INSURANCE ADJUSTER AI - DESIGN SYSTEM
    Tailwind v4 + custom theme + animations
+   Roles: semantic tokens, colourblind-safe
+   severity, lifecycle & peril palettes,
+   4 themes, aurora/spotlight/beam shaders.
    ========================================== */
 
 @theme {
@@ -18,9 +21,13 @@
   --color-grape-2: #a78bfa;
   --color-amber: #f7b955;
   --color-rose: #ff6b7a;
+  --color-success: #34d399;
+  --color-warn: #f7b955;
+  --color-danger: #ff6b7a;
+  --color-info: #38bdf8;
 }
 
-/* Theme variables (dark default) */
+/* ---------- Base tokens (dark = default) ---------- */
 :root,
 body.dark-theme {
   --bg: #0b0d17;
@@ -35,6 +42,33 @@ body.dark-theme {
   --grape-soft: rgba(124, 108, 246, 0.12);
   --amber: #f7b955;
   --rose: #ff6b7a;
+
+  /* semantic status */
+  --success: #34d399;
+  --success-soft: rgba(52, 211, 153, 0.12);
+  --warn: #f7b955;
+  --warn-soft: rgba(247, 185, 85, 0.12);
+  --danger: #ff6b7a;
+  --danger-soft: rgba(255, 107, 122, 0.12);
+  --info: #38bdf8;
+  --info-soft: rgba(56, 189, 248, 0.12);
+
+  /* colourblind-safe severity ramp (always pair with a text label) */
+  --sev-1: #2dd4bf;
+  --sev-2: #60a5fa;
+  --sev-3: #fbbf24;
+  --sev-4: #f87171;
+
+  /* perils */
+  --peril-fire: #fb7185;
+  --peril-water: #38bdf8;
+  --peril-wind: #34d399;
+  --peril-hail: #a78bfa;
+  --peril-theft: #94a3b8;
+  --peril-structural: #f59e0b;
+
+  --shadow: 0 18px 50px -30px rgba(0, 0, 0, 0.7);
+  --spot: 0.5;
 }
 
 body.light-theme {
@@ -50,11 +84,106 @@ body.light-theme {
   --grape-soft: rgba(109, 92, 224, 0.10);
   --amber: #d98a1f;
   --rose: #e04b5e;
+
+  --success: #059669;
+  --success-soft: rgba(5, 150, 105, 0.10);
+  --warn: #d97706;
+  --warn-soft: rgba(217, 119, 6, 0.10);
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.10);
+  --info: #0284c7;
+  --info-soft: rgba(2, 132, 199, 0.10);
+
+  --sev-1: #0d9488;
+  --sev-2: #2563eb;
+  --sev-3: #d97706;
+  --sev-4: #dc2626;
+
+  --peril-fire: #e11d48;
+  --peril-water: #0284c7;
+  --peril-wind: #059669;
+  --peril-hail: #7c3aed;
+  --peril-theft: #64748b;
+  --peril-structural: #b45309;
+
+  --shadow: 0 18px 44px -32px rgba(19, 22, 41, 0.35);
+  --spot: 0.28;
 }
 
-html {
-  scroll-behavior: smooth;
+/* OLED / dim — true black, minimal glow */
+body.dim-theme {
+  --bg: #000000;
+  --bg-2: #0a0a12;
+  --panel: #0d0d16;
+  --line: #1c1c2b;
+  --fg: #e6e8f2;
+  --muted: #8b90a8;
+  --accent: #12d9b0;
+  --accent-soft: rgba(18, 217, 176, 0.10);
+  --grape: #7c6cf6;
+  --grape-soft: rgba(124, 108, 246, 0.10);
+  --amber: #f7b955;
+  --rose: #ff6b7a;
+  --success: #34d399;
+  --success-soft: rgba(52, 211, 153, 0.10);
+  --warn: #f7b955;
+  --warn-soft: rgba(247, 185, 85, 0.10);
+  --danger: #ff6b7a;
+  --danger-soft: rgba(255, 107, 122, 0.10);
+  --info: #38bdf8;
+  --info-soft: rgba(56, 189, 248, 0.10);
+  --sev-1: #2dd4bf;
+  --sev-2: #60a5fa;
+  --sev-3: #fbbf24;
+  --sev-4: #f87171;
+  --peril-fire: #fb7185;
+  --peril-water: #38bdf8;
+  --peril-wind: #34d399;
+  --peril-hail: #a78bfa;
+  --peril-theft: #94a3b8;
+  --peril-structural: #f59e0b;
+  --shadow: none;
+  --spot: 0.22;
 }
+
+/* High-contrast — WCAG-AAA-leaning */
+body.contrast-theme {
+  --bg: #05060a;
+  --bg-2: #0c0e16;
+  --panel: #0c0e16;
+  --line: #6b7290;
+  --fg: #ffffff;
+  --muted: #c7cbe0;
+  --accent: #2bffd0;
+  --accent-soft: rgba(43, 255, 208, 0.18);
+  --grape: #b3a4ff;
+  --grape-soft: rgba(179, 164, 255, 0.18);
+  --amber: #ffd166;
+  --rose: #ff8a96;
+  --success: #4ade80;
+  --success-soft: rgba(74, 222, 128, 0.18);
+  --warn: #ffd166;
+  --warn-soft: rgba(255, 209, 102, 0.18);
+  --danger: #ff8a96;
+  --danger-soft: rgba(255, 138, 150, 0.18);
+  --info: #7cd4ff;
+  --info-soft: rgba(124, 212, 255, 0.18);
+  --sev-1: #5eead4;
+  --sev-2: #93c5fd;
+  --sev-3: #ffd166;
+  --sev-4: #ff8a96;
+  --peril-fire: #ff9db0;
+  --peril-water: #7cd4ff;
+  --peril-wind: #5eead4;
+  --peril-hail: #c4b5fd;
+  --peril-theft: #cbd5e1;
+  --peril-structural: #ffd166;
+  --shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --spot: 0;
+}
+body.contrast-theme .surface { border-width: 2px; }
+
+html { scroll-behavior: smooth; }
 
 body {
   margin: 0;
@@ -65,17 +194,31 @@ body {
   transition: background 0.35s ease, color 0.35s ease;
 }
 
-/* Atmosphere: layered gradient glows */
+/* Atmosphere: aurora mesh (drifts slowly) */
 body::before {
   content: "";
   position: fixed;
-  inset: 0;
-  z-index: -1;
+  inset: -20%;
+  z-index: -2;
   background:
     radial-gradient(60rem 30rem at 12% -8%, var(--grape-soft), transparent 60%),
     radial-gradient(50rem 28rem at 92% 8%, var(--accent-soft), transparent 55%),
     radial-gradient(40rem 30rem at 60% 110%, var(--grape-soft), transparent 60%);
+  background-size: 180% 180%;
   pointer-events: none;
+  animation: aurora 24s ease-in-out infinite alternate;
+}
+
+/* Spotlight that follows the cursor */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(36rem 36rem at var(--mx, 50%) var(--my, 20%), var(--accent-soft), transparent 60%);
+  opacity: var(--spot, 0.5);
+  pointer-events: none;
+  transition: opacity 0.4s ease;
 }
 
 /* ---------- Animations ---------- */
@@ -95,12 +238,22 @@ body::before {
   0%, 100% { opacity: 0.55; transform: scale(1); }
   50% { opacity: 1; transform: scale(1.08); }
 }
+@keyframes aurora {
+  0% { transform: translate3d(-3%, -2%, 0) scale(1); }
+  100% { transform: translate3d(3%, 2%, 0) scale(1.12); }
+}
+@keyframes mascotBlink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.08); }
+}
+@keyframes beamSpin { to { --beam-angle: 360deg; } }
 
 .fade-in {
   opacity: 0;
   animation: fadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 .floaty { animation: floaty 5s ease-in-out infinite; }
+.mascot-eyes { transform-origin: 60px 52px; animation: mascotBlink 5.5s infinite; }
 
 /* ---------- Surface / glass ---------- */
 .surface {
@@ -108,7 +261,36 @@ body::before {
   border: 1px solid var(--line);
   border-radius: 20px;
   backdrop-filter: blur(14px);
-  box-shadow: 0 18px 50px -30px rgba(0, 0, 0, 0.7);
+  box-shadow: var(--shadow);
+}
+
+/* Animated beam border on the active surface */
+@property --beam-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+.beam { position: relative; }
+.beam::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--beam-angle),
+    transparent 0 62%,
+    var(--accent) 78%,
+    var(--grape) 90%,
+    transparent 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: beamSpin 5s linear infinite;
+  pointer-events: none;
+  opacity: 0.75;
 }
 
 /* ---------- Form input ---------- */
@@ -133,6 +315,35 @@ body::before {
 .bg-\[var\(--accent-dim\)\] { background: var(--accent-soft); }
 .bg-\[var\(--primary-dim\)\] { background: var(--grape-soft); }
 
+/* ---------- Badges: severity / lifecycle / peril ---------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.4;
+  border: 1px solid transparent;
+}
+.sev-1 { color: var(--sev-1); background: color-mix(in srgb, var(--sev-1) 14%, transparent); border-color: color-mix(in srgb, var(--sev-1) 35%, transparent); }
+.sev-2 { color: var(--sev-2); background: color-mix(in srgb, var(--sev-2) 14%, transparent); border-color: color-mix(in srgb, var(--sev-2) 35%, transparent); }
+.sev-3 { color: var(--sev-3); background: color-mix(in srgb, var(--sev-3) 14%, transparent); border-color: color-mix(in srgb, var(--sev-3) 35%, transparent); }
+.sev-4 { color: var(--sev-4); background: color-mix(in srgb, var(--sev-4) 14%, transparent); border-color: color-mix(in srgb, var(--sev-4) 35%, transparent); }
+.lifecycle-new { color: var(--info); background: var(--info-soft); border-color: color-mix(in srgb, var(--info) 35%, transparent); }
+.lifecycle-reviewing { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+.lifecycle-priced { color: var(--grape); background: var(--grape-soft); border-color: color-mix(in srgb, var(--grape) 35%, transparent); }
+.lifecycle-approved { color: var(--success); background: var(--success-soft); border-color: color-mix(in srgb, var(--success) 35%, transparent); }
+.peril { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.72rem; font-weight: 500; }
+.peril-dot { width: 0.5rem; height: 0.5rem; border-radius: 999px; flex: 0 0 auto; }
+.peril-fire .peril-dot { background: var(--peril-fire); }
+.peril-water .peril-dot { background: var(--peril-water); }
+.peril-wind .peril-dot { background: var(--peril-wind); }
+.peril-hail .peril-dot { background: var(--peril-hail); }
+.peril-theft .peril-dot { background: var(--peril-theft); }
+.peril-structural .peril-dot { background: var(--peril-structural); }
+
 /* ---------- Prose (report markdown) ---------- */
 .prose-report {
   color: var(--fg);
@@ -142,16 +353,19 @@ body::before {
   color: var(--fg);
   font-weight: 700;
   margin: 1.4em 0 0.5em;
+  letter-spacing: -0.01em;
 }
-.prose-report h1 { font-size: 1.6rem; }
-.prose-report h2 { font-size: 1.3rem; }
+.prose-report h1 { font-size: 1.6rem; font-family: "Fraunces", Georgia, serif; }
+.prose-report h2 { font-size: 1.3rem; font-family: "Fraunces", Georgia, serif; }
 .prose-report h3 { font-size: 1.1rem; }
 .prose-report p { margin: 0.6em 0; color: var(--muted); }
 .prose-report ul, .prose-report ol { margin: 0.6em 0; padding-left: 1.3em; color: var(--muted); }
 .prose-report li { margin: 0.25em 0; }
 .prose-report strong { color: var(--fg); }
+.prose-report a { color: var(--accent); text-decoration: underline; }
 .prose-report table { width: 100%; border-collapse: collapse; margin: 1em 0; }
 .prose-report th, .prose-report td { border: 1px solid var(--line); padding: 0.5em 0.75em; text-align: left; }
+.prose-report th { background: var(--bg-2); }
 .prose-report code { background: var(--bg-2); padding: 0.15em 0.4em; border-radius: 6px; font-family: "JetBrains Mono", monospace; font-size: 0.9em; }
 
 /* Shimmer skeleton */
@@ -162,6 +376,13 @@ body::before {
   border-radius: 10px;
 }
 
+/* ---------- Print / report export ---------- */
+@media print {
+  body::before, body::after, .beam::before { display: none !important; }
+  body { background: #fff; color: #000; }
+  .surface { box-shadow: none; border-color: #ccc; backdrop-filter: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .fade-in, .floaty, .skeleton { animation: none; opacity: 1; }
+  .fade-in, .floaty, .skeleton, .mascot-eyes, .beam::before, body::before { animation: none; opacity: 1; }
 }

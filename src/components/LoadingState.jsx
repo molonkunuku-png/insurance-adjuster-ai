@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import Mascot from './Mascot'
 
 const STEPS = [
   'Reading policy document…',
@@ -20,12 +21,7 @@ function LoadingState() {
     <div className="fade-in flex min-h-[60vh] flex-col items-center justify-center text-center">
       <div className="relative">
         <div className="absolute inset-0 rounded-full bg-[var(--accent)]/20 blur-2xl" style={{ animation: 'pulseGlow 2.4s ease-in-out infinite' }} />
-        <div className="relative grid h-20 w-20 place-items-center rounded-3xl border border-[var(--line)] bg-[var(--bg-2)]">
-          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="floaty">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            <path d="M9 12l2 2 4-4" />
-          </svg>
-        </div>
+        <Mascot size={104} mood="idle" className="relative" />
       </div>
 
       <h2 className="mt-6 text-lg font-semibold">Assessing your claim</h2>

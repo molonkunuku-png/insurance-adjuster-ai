@@ -1,7 +1,13 @@
 import React, { useState, useRef, useCallback } from 'react'
+import {
+  FileText, ImagePlus, Plus, X, Loader2, CheckCircle2,
+  AlertTriangle, ScanEye, RotateCcw, ArrowRight,
+} from 'lucide-react'
+import { extractPdfText, renderPdfPages } from '../lib/pdf'
 
 function FileUpload({ onUpload }) {
   const [files, setFiles] = useState({ policyPdf: null, damageImages: [] })
+  const [policy, setPolicy] = useState({ status: 'idle', text: '', images: [], numPages: 0, truncated: false, error: '' })
   const [dragging, setDragging] = useState(false)
   const pdfInput = useRef(null)
   const imgInput = useRef(null)
@@ -30,9 +36,21 @@ function FileUpload({ onUpload }) {
   }, [])
 
   const addPdf = useCallback(async (file) => {
-    if (file && file.type === 'application/pdf') {
-      const base64 = await readAsBase64(file)
-      setFiles(prev => ({ ...prev, policyPdf: file, policyPdfBase64: base64 }))
+    if (!file || file.type !== 'application/pdf') return
+    setFiles(prev => ({ ...prev, policyPdf: file }))
+    setPolicy({ status: 'reading', text: '', images: [], numPages: 0, truncated: false, error: '' })
+    try {
+      const res = await extractPdfText(file)
+      if (res.scanned) {
+        // No text layer (scanned policy) — rasterize pages for Vision instead.
+        const images = await renderPdfPages(file)
+        setPolicy({ status: 'scanned', text: '', images, numPages: res.numPages, truncated: false, error: '' })
+      } else {
+        setPolicy({ status: 'ready', text: res.text, images: [], numPages: res.numPages, truncated: res.truncated, error: '' })
+      }
+    } catch (e) {
+      console.error('[pdf] extraction failed', e)
+      setPolicy({ status: 'error', text: '', images: [], numPages: 0, truncated: false, error: e.message || 'Could not read PDF' })
     }
   }, [])
 
@@ -48,24 +66,40 @@ function FileUpload({ onUpload }) {
   const removeImage = idx =>
     setFiles(prev => ({ ...prev, damageImages: prev.damageImages.filter((_, i) => i !== idx) }))
 
-  const reset = () => setFiles({ policyPdf: null, damageImages: [] })
+  const reset = () => {
+    setFiles({ policyPdf: null, damageImages: [] })
+    setPolicy({ status: 'idle', text: '', images: [], numPages: 0, truncated: false, error: '' })
+  }
 
-  const getImagesForAI = async () =>
-    files.damageImages.map(f => ({ base64: f.base64.split(',')[1], type: f.type }))
+  const clearPdf = (e) => {
+    e.stopPropagation()
+    setFiles(prev => ({ ...prev, policyPdf: null }))
+    setPolicy({ status: 'idle', text: '', images: [], numPages: 0, truncated: false, error: '' })
+  }
 
-  const getPdfText = () =>
-    files.policyPdf
-      ? '[Policy PDF attached - AI extracts visible terms, coverage and exclusions]'
-      : ''
+  const getImagesForAI = async () => {
+    const damage = files.damageImages.map(f => ({ base64: f.base64.split(',')[1], type: f.type }))
+    const scan = policy.images.map(f => ({ base64: f.base64.split(',')[1], type: f.type }))
+    return [...damage, ...scan].slice(0, 12)
+  }
 
-  const ready = !!files.policyPdf && files.damageImages.length > 0
+  const getPdfText = () => {
+    if (!files.policyPdf) return ''
+    if (policy.status === 'scanned') {
+      return '[Scanned policy: no text layer. The policy page images are attached — read the visible terms, coverage and exclusions from them.]'
+    }
+    return policy.text
+  }
+
+  const pdfBusy = policy.status === 'reading'
+  const ready = !!files.policyPdf && (policy.status === 'ready' || policy.status === 'scanned') && files.damageImages.length > 0
 
   return (
     <div
       onDragOver={e => { e.preventDefault(); setDragging(true) }}
       onDragLeave={e => { e.preventDefault(); setDragging(false) }}
       onDrop={handleDrop}
-      className={`surface relative overflow-hidden p-5 transition-colors sm:p-6 ${
+      className={`surface beam relative overflow-hidden p-5 transition-colors sm:p-6 ${
         dragging ? 'border-[var(--accent)] ring-2 ring-[var(--accent)]/30' : ''
       }`}
     >
@@ -73,29 +107,72 @@ function FileUpload({ onUpload }) {
         {/* Policy PDF */}
         <button
           type="button"
-          onClick={() => pdfInput.current?.click()}
+          onClick={() => !pdfBusy && pdfInput.current?.click()}
           className={`group flex min-h-[190px] flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 text-center transition ${
             files.policyPdf
-              ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
+              ? policy.status === 'error'
+                ? 'border-[var(--danger)] bg-[var(--danger-soft)]'
+                : 'border-[var(--accent)] bg-[var(--accent-soft)]'
               : 'border-[var(--line)] hover:border-[var(--accent)] hover:bg-[var(--bg-2)]'
           }`}
         >
-          <div className={`mb-3 grid h-12 w-12 place-items-center rounded-2xl transition ${files.policyPdf ? 'bg-[var(--accent)] text-[#0b0d17]' : 'bg-[var(--bg-2)] text-[var(--muted)] group-hover:text-[var(--accent)]'}`}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-              <path d="M14 2v6h6" />
-            </svg>
+          <div className={`mb-3 grid h-12 w-12 place-items-center rounded-2xl transition ${
+            files.policyPdf
+              ? policy.status === 'error' ? 'bg-[var(--danger)] text-white' : 'bg-[var(--accent)] text-[#0b0d17]'
+              : 'bg-[var(--bg-2)] text-[var(--muted)] group-hover:text-[var(--accent)]'
+          }`}>
+            {pdfBusy ? <Loader2 size={22} className="animate-spin" />
+              : policy.status === 'error' ? <AlertTriangle size={22} />
+              : policy.status === 'scanned' ? <ScanEye size={22} />
+              : files.policyPdf ? <CheckCircle2 size={22} />
+              : <FileText size={22} />}
           </div>
-          {files.policyPdf ? (
-            <>
-              <div className="text-sm font-semibold text-[var(--accent)]">Policy attached</div>
-              <div className="mt-0.5 max-w-[14rem] truncate text-xs text-[var(--muted)]">{files.policyPdf.name}</div>
-            </>
-          ) : (
+
+          {!files.policyPdf && (
             <>
               <div className="text-sm font-semibold">Drop policy PDF</div>
               <div className="mt-0.5 text-xs text-[var(--muted)]">or click to browse · .pdf</div>
             </>
+          )}
+          {pdfBusy && (
+            <>
+              <div className="text-sm font-semibold text-[var(--accent)]">Reading policy…</div>
+              <div className="mt-0.5 text-xs text-[var(--muted)]">extracting the fine print</div>
+            </>
+          )}
+          {files.policyPdf && policy.status === 'ready' && (
+            <>
+              <div className="text-sm font-semibold text-[var(--accent)]">Policy parsed</div>
+              <div className="mt-0.5 max-w-[14rem] truncate text-xs text-[var(--muted)]">{files.policyPdf.name}</div>
+              <div className="mt-1 text-[11px] text-[var(--muted)]">
+                {policy.numPages} page{policy.numPages > 1 ? 's' : ''} · {policy.text.length.toLocaleString()} chars{policy.truncated ? ' (first 30)' : ''}
+              </div>
+            </>
+          )}
+          {files.policyPdf && policy.status === 'scanned' && (
+            <>
+              <div className="text-sm font-semibold text-[var(--accent)]">Scanned policy</div>
+              <div className="mt-0.5 max-w-[14rem] truncate text-xs text-[var(--muted)]">{files.policyPdf.name}</div>
+              <div className="mt-1 text-[11px] text-[var(--muted)]">no text layer · sending {policy.images.length} page image{policy.images.length > 1 ? 's' : ''}</div>
+            </>
+          )}
+          {files.policyPdf && policy.status === 'error' && (
+            <>
+              <div className="text-sm font-semibold text-[var(--danger)]">Couldn't read PDF</div>
+              <div className="mt-0.5 max-w-[14rem] truncate text-xs text-[var(--muted)]">{policy.error}</div>
+            </>
+          )}
+
+          {files.policyPdf && !pdfBusy && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={clearPdf}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') clearPdf(e) }}
+              className="mt-2 inline-flex items-center gap-1 rounded-lg border border-[var(--line)] bg-[var(--bg-2)] px-2 py-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--danger)]"
+            >
+              <RotateCcw size={11} /> Replace
+            </span>
           )}
         </button>
 
@@ -108,11 +185,7 @@ function FileUpload({ onUpload }) {
               className="group flex flex-1 flex-col items-center justify-center text-center"
             >
               <div className="mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-[var(--bg-2)] text-[var(--muted)] transition group-hover:text-[var(--grape)]">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <circle cx="8.5" cy="8.5" r="1.5" />
-                  <path d="M21 15l-5-5L5 21" />
-                </svg>
+                <ImagePlus size={22} />
               </div>
               <div className="text-sm font-semibold">Add damage photos</div>
               <div className="mt-0.5 text-xs text-[var(--muted)]">multiple images · jpg/png</div>
@@ -125,9 +198,10 @@ function FileUpload({ onUpload }) {
                   <button
                     type="button"
                     onClick={() => removeImage(i)}
-                    className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-black/70 text-[10px] text-white opacity-0 transition group-hover:opacity-100"
+                    aria-label="Remove photo"
+                    className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-black/70 text-white opacity-0 transition group-hover:opacity-100"
                   >
-                    ✕
+                    <X size={11} />
                   </button>
                 </div>
               ))}
@@ -136,9 +210,7 @@ function FileUpload({ onUpload }) {
                 onClick={() => imgInput.current?.click()}
                 className="grid aspect-square place-items-center rounded-xl border border-dashed border-[var(--line)] text-[var(--muted)] transition hover:border-[var(--grape)] hover:text-[var(--grape)]"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
+                <Plus size={18} />
               </button>
             </div>
           )}
@@ -157,7 +229,9 @@ function FileUpload({ onUpload }) {
             </span>
           )}
           {(files.policyPdf || files.damageImages.length > 0) && (
-            <button onClick={reset} className="underline transition hover:text-[var(--rose)]">Reset</button>
+            <button onClick={reset} className="inline-flex items-center gap-1 underline transition hover:text-[var(--rose)]">
+              <RotateCcw size={11} /> Reset
+            </button>
           )}
         </div>
         <button
@@ -165,15 +239,13 @@ function FileUpload({ onUpload }) {
           disabled={!ready}
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] px-5 py-2.5 text-sm font-semibold text-[#0b0d17] shadow-lg shadow-[var(--accent)]/20 transition enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12h14M12 5l7 7-7 7" />
-          </svg>
+          <ArrowRight size={16} strokeWidth={2.2} />
           Analyze claim
         </button>
       </div>
       {!ready && (
         <p className="mt-2 text-right text-[11px] text-[var(--muted)]">
-          Add a policy PDF and at least one damage photo to continue.
+          {pdfBusy ? 'Reading your policy PDF…' : 'Add a policy PDF and at least one damage photo to continue.'}
         </p>
       )}
     </div>

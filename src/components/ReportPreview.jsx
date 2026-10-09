@@ -1,13 +1,24 @@
 import React, { useMemo, useState } from 'react'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
+import { FileText, Download, Code2, Eye, Sparkles, RefreshCw } from 'lucide-react'
+import Mascot from './Mascot'
 
 function ReportPreview({ report, onGenerate, loading }) {
   const [showRaw, setShowRaw] = useState(false)
   const markdown = report?.markdown
 
+  // Sanitize the rendered markdown: the report body can contain model output
+  // derived from untrusted policy text / photo captions (prompt injection),
+  // so we never hand raw HTML to the DOM.
   const html = useMemo(() => {
     if (!markdown) return ''
-    return marked.parse(markdown, { breaks: true, gfm: true })
+    const raw = marked.parse(markdown, { breaks: true, gfm: true })
+    return DOMPurify.sanitize(raw, {
+      USE_PROFILES: { html: true },
+      FORBID_TAGS: ['style', 'form', 'input', 'button', 'iframe', 'object', 'embed'],
+      FORBID_ATTR: ['style', 'onerror', 'onload', 'onclick'],
+    })
   }, [markdown])
 
   const download = () => {
@@ -25,14 +36,11 @@ function ReportPreview({ report, onGenerate, loading }) {
       <div className="surface fade-in overflow-hidden" style={{ animationDelay: '320ms' }}>
         <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-5 py-4">
           <div className="flex items-center gap-2">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-              <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
-            </svg>
+            <FileText size={16} className="text-[var(--accent)]" />
             <span className="text-sm font-semibold">Loss report</span>
             {markdown && (
-              <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-medium text-[var(--accent)]">
-                Generated
+              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--success-soft)] px-2 py-0.5 text-[10px] font-medium text-[var(--success)]">
+                <Sparkles size={10} /> Generated
               </span>
             )}
           </div>
@@ -40,18 +48,15 @@ function ReportPreview({ report, onGenerate, loading }) {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setShowRaw(v => !v)}
-                className="rounded-lg border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--fg)]"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--fg)]"
               >
-                {showRaw ? 'Preview' : 'Markdown'}
+                {showRaw ? <><Eye size={12} /> Preview</> : <><Code2 size={12} /> Markdown</>}
               </button>
               <button
                 onClick={download}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--accent)] hover:border-[var(--accent)]"
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
-                </svg>
-                .md
+                <Download size={12} /> .md
               </button>
             </div>
           )}
@@ -59,12 +64,12 @@ function ReportPreview({ report, onGenerate, loading }) {
 
         <div className="p-5">
           {!markdown && (
-            <div className="flex flex-col items-center gap-3 py-8 text-center">
-              <div className="skeleton h-3 w-3/4" />
-              <div className="skeleton h-3 w-full" />
-              <div className="skeleton h-3 w-5/6" />
-              <div className="skeleton h-3 w-2/3" />
-              <p className="mt-3 text-xs text-[var(--muted)]">Generate a full report to fill this in.</p>
+            <div className="flex flex-col items-center gap-2 py-6 text-center">
+              <Mascot size={92} mood="idle" />
+              <p className="mt-2 text-sm font-medium">Ready when you are</p>
+              <p className="max-w-xs text-xs text-[var(--muted)]">
+                Generate the full loss report to see the draft appear here in seconds.
+              </p>
             </div>
           )}
 
@@ -87,18 +92,13 @@ function ReportPreview({ report, onGenerate, loading }) {
       >
         {loading ? (
           <>
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#0b0d17]/40 border-t-[#0b0d17]" />
+            <RefreshCw size={16} className="animate-spin" />
             Drafting report…
           </>
         ) : markdown ? (
-          'Regenerate report'
+          <><RefreshCw size={16} /> Regenerate report</>
         ) : (
-          <>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" />
-            </svg>
-            Generate full report
-          </>
+          <><Sparkles size={16} /> Generate full report</>
         )}
       </button>
     </div>
