@@ -159,11 +159,18 @@ export async function findLeadByEmail(email) {
 export async function markLogin(id) {
   if (useMemory) {
     const lead = memory.betaLeads.find(l => l.id === id)
-    if (lead) { lead.lastLoginAt = new Date().toISOString(); lead.uses = (lead.uses || 0) + 1; lead.status = 'active' }
+    if (lead) {
+      lead.lastLoginAt = new Date().toISOString()
+      lead.uses = (lead.uses || 0) + 1
+      lead.status = 'active'
+      lead.accessTokenHash = null
+      lead.tokenExpiresAt = null
+    }
     return
   }
   await pool.query(
-    `UPDATE beta_leads SET last_login_at = now(), uses = uses + 1, status = 'active' WHERE id = $1`,
+    `UPDATE beta_leads SET last_login_at = now(), uses = uses + 1, status = 'active',
+       access_token_hash = NULL, token_expires_at = NULL WHERE id = $1`,
     [id]
   )
 }

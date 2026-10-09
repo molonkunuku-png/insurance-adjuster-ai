@@ -51,6 +51,9 @@ try {
   const me1 = await fetch(`${BASE}/api/auth/me`, { headers: { cookie } }).then(r => r.json())
   ok('me authorized after verify', me1.authorized === true && me1.email === email, JSON.stringify(me1))
 
+  const reuse = await fetch(`${BASE}/api/access/verify?token=test-token`, { redirect: 'manual' })
+  ok('magic link is single-use (no replay)', (reuse.headers.get('location') || '').includes('access=invalid'))
+
   const badVerify = await fetch(`${BASE}/api/access/verify?token=nope`, { redirect: 'manual' })
   ok('bad token redirects to ?access=invalid', (badVerify.headers.get('location') || '').includes('access=invalid'))
 
