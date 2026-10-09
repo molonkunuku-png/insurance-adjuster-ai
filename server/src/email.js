@@ -178,7 +178,7 @@ export function adminNotificationHtml({ name, email, role, claimsPerMonth, creat
       ${row('Name', escapeHtml(name))}
       ${row('Email', escapeHtml(email))}
       ${row('Role', escapeHtml(role || '—'))}
-      ${row('Claims/mo', escapeHtml(claimsPerMonth || '—'))}
+      ${row('Claims/month', escapeHtml(claimsPerMonth || '—'))}
       ${row('Status', created ? 'new lead' : 'returning lead (updated)')}
     </table>`
   return shell(body, `New Themis beta request from ${name}`)
@@ -190,7 +190,7 @@ export function adminNotificationText({ name, email, role, claimsPerMonth, creat
 Name: ${name}
 Email: ${email}
 Role: ${role || '—'}
-Claims/mo: ${claimsPerMonth || '—'}
+Claims/month: ${claimsPerMonth || '—'}
 Status: ${created ? 'new lead' : 'returning lead (updated)'}`
 }
 

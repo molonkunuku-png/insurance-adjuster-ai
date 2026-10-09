@@ -82,12 +82,14 @@ export default function BetaForm({ compact = false }) {
           </>
         )}
 
-        <button
-          onClick={resend}
-          className="mt-4 text-xs text-[var(--muted)] underline transition hover:text-[var(--accent)]"
-        >
-          {resent ? 'Access link resent ✓' : "Didn't get it? Resend"}
-        </button>
+        {!emailBlocked && (
+          <button
+            onClick={resend}
+            className="mt-4 text-xs text-[var(--muted)] underline transition hover:text-[var(--accent)]"
+          >
+            {resent ? 'Access link resent ✓' : "Didn't get it? Resend"}
+          </button>
+        )}
       </div>
     )
   }
@@ -119,8 +121,8 @@ export default function BetaForm({ compact = false }) {
               {ROLES.map(r => <option key={r}>{r}</option>)}
             </select>
           </Field>
-          <Field label="Claims / month">
-            <input value={form.claims} onChange={e => setForm({ ...form, claims: e.target.value })} placeholder="e.g. 40" className="input" />
+          <Field label="Claims handled / month">
+            <input value={form.claims} onChange={e => setForm({ ...form, claims: e.target.value })} placeholder="how many you handle, e.g. 40" className="input" />
           </Field>
         </div>
 
