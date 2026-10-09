@@ -1,38 +1,24 @@
 import React, { useState } from 'react'
+import { apiPost } from '../lib/api'
 
 const ROLES = ['Independent (IA)', 'Staff adjuster', 'CAT adjuster', 'Desk adjuster', 'Other']
-
-const endpoint = import.meta.env.VITE_BETA_FORM_ENDPOINT
-const contactEmail = import.meta.env.VITE_CONTACT_EMAIL || 'hello@example.com'
 
 export default function BetaSignup({ onClose }) {
   const [form, setForm] = useState({ name: '', email: '', role: ROLES[0], claims: '' })
   const [status, setStatus] = useState('idle') // idle | sending | done | error
+  const [error, setError] = useState('')
   const valid = form.name.trim() && /\S+@\S+\.\S+/.test(form.email)
 
   const submit = async (e) => {
     e.preventDefault()
     if (!valid) return
     setStatus('sending')
+    setError('')
     try {
-      if (endpoint) {
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ ...form, source: 'themis-beta' }),
-        })
-        if (!res.ok) throw new Error('request failed')
-        setStatus('done')
-      } else {
-        // Fallback: open the user's mail client pre-filled
-        const subject = encodeURIComponent(`Themis beta request — ${form.name}`)
-        const body = encodeURIComponent(
-          `Name: ${form.name}\nEmail: ${form.email}\nRole: ${form.role}\nClaims/mo: ${form.claims}\n`
-        )
-        window.location.href = `mailto:${contactEmail}?subject=${subject}&body=${body}`
-        setStatus('done')
-      }
-    } catch {
+      await apiPost('/api/beta', { ...form, source: 'themis-beta' })
+      setStatus('done')
+    } catch (err) {
+      setError(err.message || 'Something went wrong')
       setStatus('error')
     }
   }
@@ -58,7 +44,7 @@ export default function BetaSignup({ onClose }) {
             </div>
             <h3 className="mt-4 text-lg font-semibold">You're on the list</h3>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Thanks {form.name.split(' ')[0]} — we'll email {form.email} with beta access shortly.
+              Thanks {form.name.split(' ')[0]} — a confirmation is on its way to {form.email}. We'll send your access link as soon as a spot opens.
             </p>
             <button
               onClick={onClose}
@@ -114,7 +100,7 @@ export default function BetaSignup({ onClose }) {
               </div>
 
               {status === 'error' && (
-                <p className="text-xs text-[var(--rose)]">Something went wrong. Email us at {contactEmail}.</p>
+                <p className="text-xs text-[var(--rose)]">{error || 'Something went wrong. Please try again.'}</p>
               )}
 
               <button

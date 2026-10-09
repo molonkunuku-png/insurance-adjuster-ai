@@ -105,14 +105,16 @@ Rule #3: **One community at a time.** Post, wait for replies, actually talk to p
 
 ---
 
-## How to wire the signup form (zero backend)
+## How the signup form works now
 
-The "Join beta" form on the site currently falls back to opening the visitor's email app
-(controlled by `VITE_CONTACT_EMAIL`). For real submissions, set `VITE_BETA_FORM_ENDPOINT`
-to a free form endpoint:
+The "Join beta" form POSTs to our own API (`POST /api/beta`), which:
+1. stores the lead in Postgres,
+2. emails the applicant a confirmation,
+3. emails **you** (`CONTACT_EMAIL`) a notification so you can follow up.
 
-- **Formspree** (free 50/mo): create a form, copy the endpoint → set as `VITE_BETA_FORM_ENDPOINT`
-- **Tally** / **Getform** also work.
-- Then in Render → Environment → add both vars → redeploy.
+Setup lives in `server/` — see `README.md` for the env vars and Render deploy steps.
 
-Submissions land in your inbox and you follow up from your own account.
+**Important (Resend test mode):** until a sending domain is verified, Resend only
+delivers to the account owner's address (`molonkunuku@gmail.com`). Your own test will
+work end-to-end; real adjuster emails need a verified domain (`resend.com/domains`) and
+then update `RESEND_FROM` to `Themis <hello@yourdomain.com>`.
