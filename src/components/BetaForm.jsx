@@ -7,6 +7,7 @@ export default function BetaForm({ compact = false }) {
   const [form, setForm] = useState({ name: '', email: '', role: ROLES[0], claims: '' })
   const [status, setStatus] = useState('idle') // idle | sending | done | error
   const [granted, setGranted] = useState(false)
+  const [accessUrl, setAccessUrl] = useState(null)
   const [error, setError] = useState('')
   const [resent, setResent] = useState(false)
   const valid = form.name.trim() && /\S+@\S+\.\S+/.test(form.email)
@@ -19,6 +20,7 @@ export default function BetaForm({ compact = false }) {
     try {
       const res = await apiPost('/api/beta', { ...form, source: 'themis-beta' })
       setGranted(Boolean(res.granted))
+      setAccessUrl(res.accessUrl || null)
       setStatus('done')
     } catch (err) {
       setError(err.message || 'Something went wrong')
@@ -29,7 +31,8 @@ export default function BetaForm({ compact = false }) {
   const resend = async () => {
     setResent(false)
     try {
-      await apiPost('/api/beta/resend', { email: form.email })
+      const res = await apiPost('/api/beta/resend', { email: form.email })
+      if (res.accessUrl) setAccessUrl(res.accessUrl)
       setResent(true)
     } catch (err) {
       setError(err.message || 'Could not resend')
@@ -37,6 +40,8 @@ export default function BetaForm({ compact = false }) {
   }
 
   if (status === 'done') {
+    const waitlist = !granted
+    const emailBlocked = granted && accessUrl
     return (
       <div className={compact ? 'text-center' : 'py-4 text-center'}>
         <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[var(--accent-soft)] text-[var(--accent)]">
@@ -44,14 +49,39 @@ export default function BetaForm({ compact = false }) {
             <path d="M20 6L9 17l-5-5" />
           </svg>
         </div>
-        <h3 className="mt-4 text-lg font-semibold">
-          {granted ? "You're in" : "You're on the list"}
-        </h3>
-        <p className="mt-1 text-sm text-[var(--muted)]">
-          {granted
-            ? <>Check <span className="text-[var(--fg)]">{form.email}</span> — we emailed your access link. Click it to open Themis.</>
-            : <>Thanks {form.name.split(' ')[0]} — a confirmation is on its way to <span className="text-[var(--fg)]">{form.email}</span>. We'll email your access link as soon as a spot opens.</>}
-        </p>
+
+        {emailBlocked ? (
+          <>
+            <h3 className="mt-4 text-lg font-semibold">You're in</h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Your access link couldn't be e-mailed — the sender is in test mode.
+            </p>
+            <a
+              href={accessUrl}
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] px-5 py-2.5 text-sm font-semibold text-[#0b0d17] transition hover:brightness-110"
+            >
+              Open your workspace →
+            </a>
+            <p className="mt-2 text-[11px] text-[var(--muted)]">
+              This fallback only shows in test mode and disappears once a sending domain is verified.
+            </p>
+          </>
+        ) : waitlist ? (
+          <>
+            <h3 className="mt-4 text-lg font-semibold">You're on the list</h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Thanks {form.name.split(' ')[0]} — a confirmation is on its way to <span className="text-[var(--fg)]">{form.email}</span>. We'll email your access link as soon as a spot opens.
+            </p>
+          </>
+        ) : (
+          <>
+            <h3 className="mt-4 text-lg font-semibold">You're in</h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Check <span className="text-[var(--fg)]">{form.email}</span> — we emailed your access link. Click it to open Themis.
+            </p>
+          </>
+        )}
+
         <button
           onClick={resend}
           className="mt-4 text-xs text-[var(--muted)] underline transition hover:text-[var(--accent)]"

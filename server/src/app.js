@@ -126,10 +126,13 @@ export function createApp() {
       let accessSent = 'skipped'
       let waitlistSent = 'skipped'
       let notified = 'skipped'
+      let accessUrl = null
 
       if (smtpConfigured()) {
         if (grantAccess) {
-          accessSent = await grantAndSend(clean).then(() => 'sent').catch(e => `failed: ${e.message}`)
+          const r = await grantAndSend(clean)
+          accessSent = r.emailSent ? 'sent' : `failed: ${r.error}`
+          if (!r.emailSent) accessUrl = r.accessUrl
         } else {
           waitlistSent = await sendBetaConfirmation(clean).then(() => 'sent').catch(e => `failed: ${e.message}`)
         }
@@ -142,6 +145,7 @@ export function createApp() {
       res.status(created ? 201 : 200).json({
         ok: true, id: lead.id, created, granted: grantAccess,
         access: accessSent, waitlist: waitlistSent, notified,
+        ...(accessUrl ? { accessUrl } : {}),
       })
     } catch (e) {
       console.error('[beta] error:', e)
@@ -156,13 +160,15 @@ export function createApp() {
         return res.status(400).json({ error: 'A valid email is required' })
       }
       const lead = await findLeadByEmail(email)
+      let accessUrl = null
       if (lead && (lead.status === 'invited' || lead.status === 'active') && smtpConfigured()) {
-        await grantAndSend({ name: lead.name, email })
+        const r = await grantAndSend({ name: lead.name, email })
+        if (!r.emailSent) accessUrl = r.accessUrl
       } else if (lead && smtpConfigured()) {
-        await sendBetaConfirmation({ name: lead.name, email })
+        await sendBetaConfirmation({ name: lead.name, email }).catch(() => {})
       }
       // Always respond the same (don't reveal whether the email exists)
-      res.json({ ok: true })
+      res.json({ ok: true, ...(accessUrl ? { accessUrl } : {}) })
     } catch (e) {
       console.error('[beta/resend] error:', e)
       res.status(500).json({ error: 'Could not resend' })
@@ -248,14 +254,25 @@ export function createApp() {
   return app
 }
 
-/** Mint an access token, mark the lead invited, and email the magic link. */
+/**
+ * Mint an access token, mark the lead invited, email the magic link.
+ * Always resolves. On email failure it returns emailSent:false + accessUrl and
+ * logs the link so the developer can sign in from the server logs (test mode).
+ */
 async function grantAndSend({ name, email }) {
   const token = generateAccessToken()
   const expiresAt = new Date(Date.now() + config.tokenTtlDays * 86400000)
   await approveLead({ email, tokenHash: hashToken(token), expiresAt })
+  // PUBLIC_API_URL -> APP_URL -> default: points the magic link at the API origin.
   const accessUrl = `${config.publicApiUrl}/api/access/verify?token=${encodeURIComponent(token)}`
-  await sendBetaAccess({ name, email, accessUrl })
-  return accessUrl
+  try {
+    await sendBetaAccess({ name, email, accessUrl })
+    return { accessUrl, emailSent: true, error: null }
+  } catch (e) {
+    console.warn(`[email] magic-link email FAILED for ${email}: ${e.message}`)
+    console.warn(`[email] ACCESS URL (test-mode fallback — open this in your browser): ${accessUrl}`)
+    return { accessUrl, emailSent: false, error: e.message }
+  }
 }
 
 function str(v, max) {
