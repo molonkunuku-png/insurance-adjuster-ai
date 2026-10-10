@@ -3,7 +3,7 @@ import {
   ShieldCheck, Zap, ScanText, Calculator, FileText, Sun, Moon, MoonStar,
   Contrast, LogOut, ChevronDown, ScanEye, DollarSign, ListChecks,
   AlertTriangle, CheckCircle2, Clock, Lock, EyeOff, History, Flame,
-  Wind, CloudHail, Waves, Droplet, Mountain, Sparkles, X, ShieldAlert, Snowflake, Send, WifiOff, MonitorSmartphone,
+  Wind, CloudHail, Waves, Droplet, Mountain, Sparkles, X, ShieldAlert, Snowflake, Send, WifiOff, MonitorSmartphone, FileDown,
 } from 'lucide-react'
 import FileUpload from './components/FileUpload'
 import ReportPreview from './components/ReportPreview'
@@ -923,6 +923,38 @@ function ResultView({ report, loading, onGenerate, onBack, events = [], onExport
     link.click()
     URL.revokeObjectURL(url)
   }
+
+  const [chainOk, setChainOk] = useState(null)
+  const verifyChain = () => {
+    try {
+      // Rebuild the chain from the live events and check every link:
+      // each row's prev must equal the previous row's hash (GENESIS first).
+      const rebuilt = chainEvents(events)
+      setChainOk(rebuilt.length === events.length && rebuilt.every((r, i) => r.prev === (i === 0 ? 'GENESIS' : rebuilt[i - 1].hash)))
+    } catch {
+      setChainOk(false)
+    }
+  }
+
+  const downloadClaimBundle = () => {
+    // E-discovery/self-export: everything about this claim in one file.
+    // Notes/policy text included: this is YOUR data export, handle accordingly.
+    const bundle = {
+      exportedAt: new Date().toISOString(),
+      analysis: a,
+      markdown: report?.markdown || null,
+      policyText: report?.policyText || null,
+      timeline: chainEvents(events),
+      signOff: report?.markdown?.includes('Adjuster sign-off') || false,
+    }
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `themis-claim-${Date.now()}.json`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
   return (
     <div>
       <div className="print-only mb-4 border-b-2 border-black pb-3">
@@ -1076,6 +1108,7 @@ function ResultView({ report, loading, onGenerate, onBack, events = [], onExport
         {events.length === 0 ? (
           <p className="text-sm text-[var(--muted)]">{t('timeline.empty', 'No events yet — they appear as you work the claim.')}</p>
         ) : (
+          <>
           <ul className="space-y-1.5">
             {events.map((e, i) => (
               <li key={i} className="tnum flex items-baseline justify-between gap-3 text-sm text-[var(--muted)]">
@@ -1084,6 +1117,20 @@ function ResultView({ report, loading, onGenerate, onBack, events = [], onExport
               </li>
             ))}
           </ul>
+          <div className="mt-3 flex flex-wrap items-center gap-2" data-print-hide>
+            <button onClick={verifyChain} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--accent)] hover:border-[var(--accent)]">
+              <ShieldCheck size={12} /> {t('audit.verify', 'Verify chain')}
+            </button>
+            {chainOk !== null && (
+              <span className={`badge ${chainOk ? 'lifecycle-approved' : 'lifecycle-new'}`}>
+                {chainOk ? t('audit.chainOk', 'Chain intact') : t('audit.chainBad', 'Chain broken')}
+              </span>
+            )}
+            <button onClick={downloadClaimBundle} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--accent)] hover:border-[var(--accent)]">
+              <FileDown size={12} /> {t('audit.bundle', 'Export full claim')}
+            </button>
+          </div>
+          </>
         )}
       </div>
       <AskPanel policyText={report?.policyText || ''} />

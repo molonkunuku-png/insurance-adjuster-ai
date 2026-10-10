@@ -12,6 +12,7 @@ import {
   countByStatus, findExpiringLeads, oldestPending,
   mintApiKey, findApiKey, touchApiKey, listApiKeys, revokeApiKey,
   persistSession, findSession, listSessions, revokeSession, findSessionByPrefix,
+  purgeStaleLeads, purgeExpiredSessions,
 } from './db.js'
 import {
   sendAdminNotification, resendConfigured,
@@ -181,8 +182,12 @@ export function createApp() {
   })
 
   // ---- auth session ----
-  app.get('/api/auth/me', noStore, (req, res) => {
-    res.json({ authorized: Boolean(req.session), email: req.session?.email || null })
+  // me reflects the FULL gate (HMAC + registry + lead status), never just
+  // cookie validity — otherwise revoked users look authorized here (F7).
+  app.get('/api/auth/me', noStore, async (req, res) => {
+    const id = await checkSession(req).catch(() => null)
+    if (!id) return res.json({ authorized: false, email: null })
+    res.json({ authorized: true, email: id.email || null })
   })
 
   app.post('/api/auth/logout', (req, res) => {
@@ -658,6 +663,17 @@ export function createApp() {
       pruneStale()
     } catch (e) {
       console.warn('[sweep:prune] failed:', e.message)
+    }
+  })
+
+  // Weekly retention: stale pending leads + expired sessions, per policy.
+  registerSweep('retention', 7 * 24 * 3600 * 1000, async () => {
+    try {
+      const leads = await purgeStaleLeads()
+      const sessions = await purgeExpiredSessions()
+      if (leads + sessions > 0) console.log(`[sweep:retention] purged ${leads} leads, ${sessions} sessions`)
+    } catch (e) {
+      console.warn('[sweep:retention] failed:', e.message)
     }
   })
 

@@ -15,7 +15,8 @@ import {
   initDb, saveBetaLead, approveLead, findLeadByTokenHash, findLeadByEmail, markLogin,
   purgeExpiredTokens, pairGet, pairSet, pairDelByChatId, pairFindByChatId,
   listBetaLeads, oldestPending, mintApiKey, findApiKey, revokeApiKey,
-  persistSession, findSession, listSessions, revokeSession,
+  persistSession, findSession, listSessions, revokeSession, findSessionByPrefix,
+  purgeStaleLeads, purgeExpiredSessions,
 } from './db.js'
 import { generateAccessToken, hashToken, createSession, verifySession, sessionSid } from './auth.js'
 
@@ -184,6 +185,34 @@ describe('telegram pairings + safe admin projection', () => {
     await saveBetaLead({ name: 'R2', email: 'revskip2@example.com' })
     const next = await oldestPending('revskip1@example.com')
     assert.ok(next && next.email !== 'revskip1@example.com' && next.status === 'pending')
+  })
+
+  it('purgeStaleLeads removes only old pending leads', async () => {
+    const { lead } = await saveBetaLead({ name: 'Old', email: 'staleold@example.com' })
+    lead.createdAt = new Date(Date.now() - 100 * 86400000).toISOString()
+    lead.status = 'pending'
+    const fresh = await saveBetaLead({ name: 'Fresh', email: 'stalefresh@example.com' })
+    void fresh
+    const n = await purgeStaleLeads()
+    assert.ok(n >= 1)
+    assert.ok(await findLeadByEmail('stalefresh@example.com'))
+    assert.equal(await findLeadByEmail('staleold@example.com'), null)
+  })
+
+  it('purgeExpiredSessions removes only expired rows', async () => {
+    const s = createSession(77, 'sesspurge@example.com', 1)
+    const sid = sessionSid(s)
+    await persistSession({ sid, leadId: 77, email: 'sesspurge@example.com', exp: Date.now() - 1000 })
+    assert.equal(await purgeExpiredSessions(), 1)
+    assert.equal(await findSession(sid), null)
+  })
+
+  it('findSessionByPrefix resolves truncated sids per email', async () => {
+    const s = createSession(78, 'prefix@example.com', 1)
+    const sid = sessionSid(s)
+    await persistSession({ sid, leadId: 78, email: 'prefix@example.com', exp: Date.now() + 3600000 })
+    assert.equal(await findSessionByPrefix('prefix@example.com', sid.slice(0, 12)), sid)
+    assert.equal(await findSessionByPrefix('other@example.com', sid.slice(0, 12)), null)
   })
 })
 

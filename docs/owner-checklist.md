@@ -63,6 +63,11 @@ Satu muka. Kalau tiada di sini, bukan tugas anda.
 
 - [ ] `GET /api/admin/mail` — failure rate, dead-letter, suppression list.
       Semak kadar gagal, dead-letter, senarai suppression.
+- [ ] Free uptime monitor (e.g. Better Uptime / UptimeRobot free tier):
+      ping `https://insurance-adjuster-ai1.onrender.com/api/health` every
+      5 minutes; alert on non-200. Render sleeps free_dynos — expect the
+      first hit after idle to be slow (cold start, not an outage).
+      Monitor percuma: ping `/api/health` setiap 5 minit.
 - [ ] Rotate Gmail App Password every 90 days (canary after).
       Tukar App Password setiap 90 hari (canary selepas itu).
 - [ ] Review `GET /api/admin/leads` — revoke stale test addresses.

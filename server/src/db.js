@@ -221,7 +221,41 @@ export async function oldestPending(excludeEmail = null) {
   return res.rows[0] || null
 }
 
-export async function purgeExpiredTokens() {  const now = new Date()
+export async function purgeStaleLeads() {
+  // Retention: pending leads older than 90 days, 100 per run.
+  const cutoff = new Date(Date.now() - 90 * 86400000)
+  if (useMemory) {
+    const before = memory.betaLeads.length
+    memory.betaLeads = memory.betaLeads.filter(
+      l => !(l.status === 'pending' && new Date(l.createdAt || 0) < cutoff)
+    )
+    return before - memory.betaLeads.length
+  }
+  const res = await pool.query(
+    `DELETE FROM beta_leads WHERE status = 'pending' AND created_at < $1`,
+    [cutoff.toISOString()]
+  )
+  return res.rowCount || 0
+}
+
+export async function purgeExpiredSessions() {
+  const now = new Date()
+  if (useMemory) {
+    let n = 0
+    for (const [sid, s] of memorySessions) {
+      if (new Date(s.expires_at) < now) {
+        memorySessions.delete(sid)
+        n += 1
+      }
+    }
+    return n
+  }
+  const res = await pool.query(`DELETE FROM sessions WHERE expires_at < now()`)
+  return res.rowCount || 0
+}
+
+export async function purgeExpiredTokens() {
+  const now = new Date()
   if (useMemory) {
     let n = 0
     for (const l of memory.betaLeads) {
