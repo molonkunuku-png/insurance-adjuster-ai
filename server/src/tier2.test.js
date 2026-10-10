@@ -14,9 +14,10 @@ import {
 import {
   initDb, saveBetaLead, approveLead, findLeadByTokenHash, findLeadByEmail, markLogin,
   purgeExpiredTokens, pairGet, pairSet, pairDelByChatId, pairFindByChatId,
-  listBetaLeads, oldestPending,
+  listBetaLeads, oldestPending, mintApiKey, findApiKey, revokeApiKey,
+  persistSession, findSession, listSessions, revokeSession,
 } from './db.js'
-import { generateAccessToken, hashToken, createSession, verifySession } from './auth.js'
+import { generateAccessToken, hashToken, createSession, verifySession, sessionSid } from './auth.js'
 
 before(async () => {
   // No DATABASE_URL in test env → initDb selects the in-memory store.
@@ -211,5 +212,35 @@ describe('sessions', () => {
     assert.equal(verifySession(s)?.email, 's@example.com')
     assert.equal(verifySession(`${s}tampered`), null)
     assert.equal(verifySession('garbage'), null)
+  })
+
+  it('persists, lists, and revokes by sid', async () => {
+    const s = createSession(8, 'sess@example.com', 1)
+    const sid = sessionSid(s)
+    assert.ok(sid)
+    await persistSession({ sid, leadId: 8, email: 'sess@example.com', exp: Date.now() + 3600000 })
+    assert.ok(await findSession(sid))
+    const rows = await listSessions('sess@example.com')
+    assert.ok(rows.length >= 1)
+    assert.equal(await revokeSession(sid, 'sess@example.com'), true)
+    const gone = await findSession(sid)
+    assert.ok(gone.revoked_at || gone.revokedAt)
+  })
+})
+
+describe('api keys (TPA)', () => {
+  it('mints once-readable keys verified by hash', async () => {
+    const { key } = await mintApiKey({ email: 'tpa@example.com', name: 'tpa-app' })
+    assert.match(key, /^thm_/)
+    const row = await findApiKey(key)
+    assert.ok(row && row.lead_email === 'tpa@example.com')
+    assert.equal(await findApiKey('thm_wrong'), null)
+  })
+
+  it('revoke kills the key', async () => {
+    const { row, key } = await mintApiKey({ email: 'tpa2@example.com', name: 'x' })
+    assert.ok(await findApiKey(key))
+    assert.equal(await revokeApiKey(row.id, 'tpa2@example.com'), true)
+    assert.equal(await findApiKey(key), null)
   })
 })

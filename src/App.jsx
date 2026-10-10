@@ -3,7 +3,7 @@ import {
   ShieldCheck, Zap, ScanText, Calculator, FileText, Sun, Moon, MoonStar,
   Contrast, LogOut, ChevronDown, ScanEye, DollarSign, ListChecks,
   AlertTriangle, CheckCircle2, Clock, Lock, EyeOff, History, Flame,
-  Wind, CloudHail, Waves, Droplet, Mountain, Sparkles, X, ShieldAlert, Snowflake, Send, WifiOff,
+  Wind, CloudHail, Waves, Droplet, Mountain, Sparkles, X, ShieldAlert, Snowflake, Send, WifiOff, MonitorSmartphone,
 } from 'lucide-react'
 import FileUpload from './components/FileUpload'
 import ReportPreview from './components/ReportPreview'
@@ -137,6 +137,92 @@ function FooterStatus() {  const { t } = useI18n()
       <span className={`inline-block h-1.5 w-1.5 rounded-full ${ok === null ? 'bg-[var(--muted)]' : ok ? 'bg-[var(--success)]' : 'bg-[var(--danger)]'}`} />
       <span>{ok === null ? t('footer.opsCheck', 'Checking status…') : ok ? t('footer.opsOk', 'All systems operational') : t('footer.opsCheck', 'Checking status…')}</span>
     </span>
+  )
+}
+
+function SessionsPanel() {
+  const { t } = useI18n()
+  const { dateTime } = useFormat()
+  const [open, setOpen] = useState(false)
+  const [rows, setRows] = useState(null)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  const load = async () => {
+    setOpen(o => !o)
+    if (rows) return
+    try {
+      const d = await apiGet('/api/auth/sessions')
+      setRows(d.sessions || [])
+    } catch {
+      setRows([])
+    }
+  }
+
+  const revoke = async (sid) => {
+    try {
+      await apiPost('/api/auth/sessions/revoke', { sid })
+      setRows(r => (r || []).filter(x => x.sid !== sid))
+    } catch { /* ignore */ }
+  }
+
+  const revokeOthers = async () => {
+    try {
+      await apiPost('/api/auth/sessions/revoke', { all: true })
+      const d = await apiGet('/api/auth/sessions')
+      setRows(d.sessions || [])
+    } catch { /* ignore */ }
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={load}
+        aria-label={t('sess.title', 'Sessions')}
+        title={t('sess.title', 'Sessions')}
+        className="flex h-9 items-center gap-1.5 rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-2.5 text-[var(--muted)] transition hover:text-[var(--fg)] hover:border-[var(--accent)]"
+      >
+        <MonitorSmartphone size={16} />
+      </button>
+      {open && (
+        <div className="surface absolute right-0 z-30 mt-2 w-72 p-4">
+          <div className="text-sm font-semibold">{t('sess.title', 'Sessions')}</div>
+          {!rows ? (
+            <p className="mt-1 text-xs text-[var(--muted)]">…</p>
+          ) : rows.length === 0 ? (
+            <p className="mt-1 text-xs text-[var(--muted)]">{t('sess.current', 'This device')}</p>
+          ) : (
+            <>
+              <ul className="mt-2 max-h-48 space-y-1.5 overflow-auto">
+                {rows.map((s, i) => (
+                  <li key={s.sid + i} className="flex items-center justify-between gap-2 rounded-lg bg-[var(--bg-2)] px-2.5 py-1.5 text-[11px]">
+                    <span className="tnum min-w-0 truncate text-[var(--muted)]" title={s.sid}>
+                      {s.current ? t('sess.current', 'This device') : s.sid} · {dateTime(s.expires_at)}
+                    </span>
+                    {!s.current && (
+                      <button onClick={() => revoke(s.sid)} className="flex-shrink-0 text-[var(--muted)] underline transition hover:text-[var(--danger)]">
+                        {t('sess.revoke', 'Revoke')}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {rows.length > 1 && (
+                <button onClick={revokeOthers} className="mt-2 text-[11px] text-[var(--muted)] underline transition hover:text-[var(--danger)]">
+                  {t('sess.revokeAll', 'Sign out other sessions')}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -317,6 +403,8 @@ function App() {
   const [gateMode, setGateMode] = useState('signup') // signup | signin
   const [appError, setAppError] = useState('')
   const [planBlocked, setPlanBlocked] = useState(false)
+  const [offlineIntent, setOfflineIntent] = useState(false)
+  const intentRef = useRef(null)
   const [carrierBrand, setCarrierBrand] = useState(() => {
     try { return localStorage.getItem('themis-brand') || '' } catch { return '' }
   })
@@ -430,6 +518,14 @@ function App() {
   }
 
   const handleUpload = async ({ files, getImagesForAI, getPdfText, getNotes }) => {
+    // Offline intent (Tier 16-lite): hold the claim on-device, offer to run
+    // on reconnect. Never auto-fire: the adjuster explicitly re-runs.
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      intentRef.current = { files, getImagesForAI, getPdfText, getNotes }
+      setOfflineIntent(true)
+      setStep('upload')
+      return
+    }
     // Freemium gate (Tier 9): N free drafts per window, then teach upgrade.
     if (!canDraft()) {
       setPlanBlocked(true)
@@ -437,6 +533,7 @@ function App() {
       return
     }
     setPlanBlocked(false)
+    setOfflineIntent(false)
     setStep('analyzing')
     setLoading(true)
     setAppError('')
@@ -550,6 +647,7 @@ function App() {
             )}
             <ThemeToggle theme={theme} onSelect={setTheme} />
             <LangToggle />
+            {auth === 'in' && <SessionsPanel />}
             {auth === 'in' && <TelegramPair />}
           </div>
         </div>
@@ -605,6 +703,17 @@ function App() {
                   setUploadKey(k => k + 1)
                 }}
                 dateTime={dateTime}
+                offlineIntent={offlineIntent}
+                onRunIntent={() => {
+                  const intent = intentRef.current
+                  intentRef.current = null
+                  setOfflineIntent(false)
+                  if (intent) handleUpload(intent)
+                }}
+                onDiscardIntent={() => {
+                  intentRef.current = null
+                  setOfflineIntent(false)
+                }}
               />
             )}
             {step === 'analyzing' && <LoadingState onCancel={cancelAnalysis} />}
@@ -642,7 +751,7 @@ function App() {
   )
 }
 
-function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, onPolicyEvent, resume, discardArmed, onContinueResume, onDiscardResume, dateTime, planBlocked, onBackToUpload, carrierBrand, onBrand }) {
+function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, onPolicyEvent, resume, discardArmed, onContinueResume, onDiscardResume, dateTime, planBlocked, onBackToUpload, carrierBrand, onBrand, offlineIntent, onRunIntent, onDiscardIntent }) {
   const { t } = useI18n()
   const left = usageStatus().remaining
   return (
@@ -667,6 +776,19 @@ function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, onPolicyEvent
       </div>
 
       <div className="fade-in mt-9" style={{ animationDelay: '90ms' }}>
+        {offlineIntent && (
+          <div className="surface mb-4 flex flex-col items-start gap-3 p-4 sm:flex-row sm:items-center sm:justify-between" role="status">
+            <div className="text-sm font-semibold">{t('queue.offlineTitle', "You're offline — claim held on this device")}</div>
+            <div className="flex items-center gap-2">
+              <button onClick={onDiscardIntent} className="rounded-xl px-3 py-2 text-[13px] text-[var(--muted)] underline transition hover:text-[var(--rose)]">
+                {t('queue.discard', 'Discard')}
+              </button>
+              <button onClick={onRunIntent} className="rounded-xl bg-[var(--accent)] px-4 py-2 text-[13px] font-semibold text-[#0b0d17] transition hover:brightness-110">
+                {t('queue.run', 'Run now')}
+              </button>
+            </div>
+          </div>
+        )}
         {planBlocked ? (
           <div className="surface p-6 text-center" role="alert">
             <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[var(--warn-soft)] text-[var(--warn)]">

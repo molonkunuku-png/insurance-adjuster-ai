@@ -38,8 +38,13 @@ export function createSession(leadId, email, ttlDays = config.sessionTtlDays) {
   return `${payload}.${hmac(payload)}`
 }
 
-export function verifySession(cookieValue) {
+/** Stable session id = the signature segment (unique per mint). */
+export function sessionSid(cookieValue) {
   if (!cookieValue || !cookieValue.includes('.')) return null
+  return cookieValue.slice(cookieValue.lastIndexOf('.') + 1) || null
+}
+
+export function verifySession(cookieValue) {  if (!cookieValue || !cookieValue.includes('.')) return null
   const idx = cookieValue.lastIndexOf('.')
   const payload = cookieValue.slice(0, idx)
   const sig = cookieValue.slice(idx + 1)

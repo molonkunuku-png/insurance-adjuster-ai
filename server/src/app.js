@@ -10,6 +10,8 @@ import {
   saveBetaLead, listBetaLeads, dbMode, countInvited, approveLead,
   findLeadByTokenHash, findLeadByEmail, markLogin, revokeLead,
   countByStatus, findExpiringLeads, oldestPending,
+  mintApiKey, findApiKey, touchApiKey, listApiKeys, revokeApiKey,
+  persistSession, findSession, listSessions, revokeSession, findSessionByPrefix,
 } from './db.js'
 import {
   sendAdminNotification, resendConfigured,
@@ -20,6 +22,7 @@ import { buildDocx, exportFilename } from './docx.js'
 import {
   generateAccessToken, hashToken, createSession, verifySession,
   parseCookies, sessionCookie, clearSessionCookie, safeEqual, cookieName,
+  sessionSid,
 } from './auth.js'
 import {
   enqueue, registerSweep, queueStatus, deadList, replayJob,
@@ -94,17 +97,51 @@ export function createApp() {
   }
 
   function requireAuth(req, res, next) {
-    if (!req.session) return res.status(401).json({ error: 'Access required. Request a beta invite to continue.' })
-    // Fail closed on revoked leads: sessions are stateless HMAC, so re-check
-    // status on every gated request (cheap at beta scale).
-    findLeadByEmail(req.session.email || '')
-      .then(lead => {
-        if (!lead || (lead.status !== 'invited' && lead.status !== 'active')) {
-          return res.status(401).json({ error: 'Access required. Request a beta invite to continue.' })
-        }
-        next()
-      })
-      .catch(next)
+    checkSession(req).then((id) => {
+      if (!id) return res.status(401).json({ error: 'Access required. Request a beta invite to continue.' })
+      req.auth = id
+      next()
+    }).catch(next)
+  }
+
+  // Session identity: HMAC validity + lead status + server-side registry.
+  // Pre-registry sessions are adopted on first sight so nobody is logged out
+  // by the upgrade; revoked rows fail closed immediately.
+  async function checkSession(req) {
+    if (!req.session) return null
+    const raw = parseCookies(req.headers.cookie)[cookieName()]
+    const sid = raw ? sessionSid(raw) : null
+    if (sid) {
+      const row = await findSession(sid).catch(() => null)
+      if (!row) {
+        await persistSession({ sid, leadId: req.session.id, email: req.session.email, exp: req.session.exp }).catch(() => {})
+      } else if (row.revoked_at || row.revokedAt) {
+        return null
+      }
+    }
+    const lead = await findLeadByEmail(req.session.email || '').catch(() => null)
+    if (!lead || (lead.status !== 'invited' && lead.status !== 'active')) return null
+    return { type: 'session', email: lead.email, id: lead.id }
+  }
+
+  // API-key identity (TPA/headless): x-api-key header, hashed at rest.
+  async function checkApiKey(req) {
+    const key = req.get('x-api-key') || ''
+    if (!key) return null
+    const row = await findApiKey(key).catch(() => null)
+    if (!row) return null
+    touchApiKey(row.id).catch(() => {})
+    return { type: 'key', email: row.lead_email, id: `key:${row.id}`, name: row.name }
+  }
+
+  function requireAuthOrKey(req, res, next) {
+    checkApiKey(req).then((k) => {
+      if (k) {
+        req.auth = k
+        return next()
+      }
+      requireAuth(req, res, next)
+    }).catch(next)
   }
 
   function requireAdmin(req, res, next) {
@@ -148,9 +185,48 @@ export function createApp() {
     res.json({ authorized: Boolean(req.session), email: req.session?.email || null })
   })
 
-  app.post('/api/auth/logout', (_req, res) => {
+  app.post('/api/auth/logout', (req, res) => {
+    try {
+      const raw = parseCookies(req.headers.cookie)[cookieName()]
+      const sid = raw ? sessionSid(raw) : null
+      if (sid) revokeSession(sid).catch(() => {})
+    } catch { /* logout never fails on bookkeeping */ }
     res.setHeader('Set-Cookie', clearSessionCookie())
     res.json({ ok: true })
+  })
+
+  // ---- own sessions: list + remote revoke ----
+  app.get('/api/auth/sessions', requireAuth, async (req, res) => {
+    const raw = parseCookies(req.headers.cookie)[cookieName()]
+    const current = raw ? sessionSid(raw) : null
+    const rows = await listSessions(req.session.email)
+    res.json({ sessions: rows.map(r => ({ ...r, current: Boolean(current && current.startsWith(r.sid)) })) })
+  })
+
+  app.post('/api/auth/sessions/revoke', requireAuth, async (req, res) => {
+    try {
+      const raw = parseCookies(req.headers.cookie)[cookieName()]
+      const current = raw ? sessionSid(raw) : null
+      if (req.body?.all) {
+        const rows = await listSessions(req.session.email)
+        let n = 0
+        for (const r of rows) {
+          // listSessions returns truncated sid prefixes; match by prefix.
+          const full = await findSessionByPrefix(req.session.email, r.sid).catch(() => null)
+          if (full && full !== current && await revokeSession(full, req.session.email).catch(() => false)) n += 1
+        }
+        return res.json({ ok: true, revoked: n })
+      }
+      const sid = str(req.body?.sid, 200)
+      if (!sid) return res.status(400).json({ error: 'sid is required' })
+      // Resolve prefix → full sid server-side; never trust blind prefixes alone.
+      const full = await findSessionByPrefix(req.session.email, sid).catch(() => null)
+      if (!full) return res.status(404).json({ error: 'Session not found' })
+      await revokeSession(full, req.session.email)
+      res.json({ ok: true })
+    } catch {
+      res.status(500).json({ error: 'Revoke failed' })
+    }
   })
 
   // ---- magic-link verify ----
@@ -167,7 +243,14 @@ export function createApp() {
       const expiry = lead.token_expires_at ?? lead.tokenExpiresAt
       if (expiry && new Date(expiry) < new Date()) return fail('expired')
       await markLogin(lead.id)
-      res.setHeader('Set-Cookie', sessionCookie(createSession(lead.id, lead.email)))
+      const signed = createSession(lead.id, lead.email)
+      await persistSession({
+        sid: sessionSid(signed),
+        leadId: lead.id,
+        email: lead.email,
+        exp: JSON.parse(Buffer.from(signed.split('.')[0], 'base64url').toString()).exp,
+      }).catch(() => {})
+      res.setHeader('Set-Cookie', sessionCookie(signed))
       res.redirect(`${config.appUrl}/?access=ok`)
     } catch (e) {
       console.error('[access] verify error:', e)
@@ -308,9 +391,9 @@ export function createApp() {
   // ---- gated AI endpoints ----
   // 8MB per image (base64 inflates ~33%, so ~10.6M chars is the wire ceiling).
   const MAX_IMAGE_B64 = 11_000_000
-  app.post('/api/analyze', noStore, analyzeLimiter, requireAuth, async (req, res) => {
+  app.post('/api/analyze', noStore, analyzeLimiter, requireAuthOrKey, async (req, res) => {
     try {
-      if (!checkDailyCap(req.session.id)) {
+      if (!checkDailyCap(req.auth?.id ?? req.session?.id ?? 'anon')) {
         return res.status(429).json({ error: `Daily analysis limit reached (${config.dailyAnalysisCap}/day). Try again tomorrow.` })
       }
       const { images, policyText, damageNotes } = req.body || {}
@@ -338,7 +421,7 @@ export function createApp() {
     }
   })
 
-  app.post('/api/report', noStore, apiLimiter, requireAuth, async (req, res) => {
+  app.post('/api/report', noStore, apiLimiter, requireAuthOrKey, async (req, res) => {
     try {
       const { analysis, lang } = req.body || {}
       if (!analysis) return res.status(400).json({ error: 'analysis is required', code: 'noAnalysis' })
@@ -353,7 +436,7 @@ export function createApp() {
     }
   })
 
-  app.post('/api/ask', noStore, apiLimiter, requireAuth, async (req, res) => {
+  app.post('/api/ask', noStore, apiLimiter, requireAuthOrKey, async (req, res) => {
     try {
       const { policyText, question, history } = req.body || {}
       const q = str(question, 1200)
@@ -375,7 +458,7 @@ export function createApp() {
     }
   })
 
-  app.post('/api/export/docx', apiLimiter, requireAuth, async (req, res) => {
+  app.post('/api/export/docx', apiLimiter, requireAuthOrKey, async (req, res) => {
     try {
       const { markdown, analysis, lang } = req.body || {}
       if (!markdown && !analysis) return res.status(400).json({ error: 'nothing to export', code: 'nothingExport' })
@@ -445,6 +528,35 @@ export function createApp() {
   })
 
   // ---- break-glass + mail ops + Telegram pairing ----
+  // ---- TPA API keys (headless access; hashed at rest, shown once) ----
+  app.post('/api/admin/keys', adminLimiter, requireAdmin, async (req, res) => {
+    try {
+      const email = str(req.body?.email, 200).toLowerCase()
+      const name = str(req.body?.name, 80) || 'default'
+      if (!isEmail(email)) return res.status(400).json({ error: 'A valid email is required' })
+      const lead = await findLeadByEmail(email)
+      if (!lead) return res.status(404).json({ error: 'Lead not found' })
+      const { key } = await mintApiKey({ email, name })
+      console.log(`[admin] key mint email=${email} by=${req.ip}`)
+      res.json({ ok: true, key })
+    } catch (e) {
+      console.error('[admin/keys] error:', e.message)
+      res.status(500).json({ error: 'Mint failed' })
+    }
+  })
+
+  app.get('/api/admin/keys', adminLimiter, requireAdmin, async (req, res) => {
+    const email = str(req.query?.email, 200).toLowerCase()
+    res.json({ keys: email ? await listApiKeys(email) : [] })
+  })
+
+  app.post('/api/admin/keys/revoke', adminLimiter, requireAdmin, async (req, res) => {
+    const ok = await revokeApiKey(Number(req.body?.id), req.body?.email ? str(req.body.email, 200) : null)
+      .catch(() => false)
+    if (!ok) return res.status(404).json({ error: 'Key not found' })
+    console.log(`[admin] key revoke id=${req.body?.id} by=${req.ip}`)
+    res.json({ ok: true })
+  })
   // Emergency one-time login URL. Disabled unless BREAK_GLASS=1, 5-minute
   // TTL, single-use (markLogin nulls on verify), fully audited. This is the
   // H0 answer to "no email arrives and no DNS can change".

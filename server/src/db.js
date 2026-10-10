@@ -1,5 +1,6 @@
 import pg from 'pg'
 import { config } from './config.js'
+import { hashToken } from './auth.js'
 
 const { Pool } = pg
 
@@ -44,6 +45,25 @@ CREATE TABLE IF NOT EXISTS telegram_pairs (
   lang         TEXT NOT NULL DEFAULT 'en',
   paired_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS api_keys (
+  id           SERIAL PRIMARY KEY,
+  lead_email   TEXT NOT NULL,
+  name         TEXT NOT NULL DEFAULT 'default',
+  key_hash     TEXT NOT NULL UNIQUE,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at TIMESTAMPTZ,
+  revoked_at   TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS api_keys_hash_idx ON api_keys (key_hash);
+CREATE TABLE IF NOT EXISTS sessions (
+  sid          TEXT PRIMARY KEY,
+  lead_id      INTEGER,
+  email        TEXT NOT NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at   TIMESTAMPTZ NOT NULL,
+  revoked_at   TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS sessions_email_idx ON sessions (email);
 
 -- Access / invite columns (added incrementally for existing deployments)
 ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS access_token_hash TEXT;
@@ -338,6 +358,164 @@ export async function listBetaLeads(limit = 200, offset = 0) {
 
 export function dbMode() {
   return useMemory ? 'memory' : 'postgres'
+}
+
+// ---------------------------------------------------------------------------
+// API keys (TPA/headless access) + server-side session registry (instant
+// revoke, session list). Memory-first like leads; Postgres when configured.
+// ---------------------------------------------------------------------------
+const memoryKeys = []
+let keySeq = 1
+const memorySessions = new Map() // sid -> row
+
+export async function mintApiKey({ email, name }) {
+  const key = `thm_${cryptoRandom(32)}`
+  const row = {
+    id: keySeq++,
+    lead_email: String(email).toLowerCase(),
+    name: String(name || 'default').slice(0, 80),
+    keyHash: hashToken(key),
+    createdAt: new Date().toISOString(),
+    lastUsedAt: null,
+    revokedAt: null,
+  }
+  if (useMemory) {
+    memoryKeys.push({ ...row, key_hash: row.keyHash, lead_email: row.lead_email });
+    return { row, key };
+  }
+  await pool.query(
+    `INSERT INTO api_keys (lead_email, name, key_hash) VALUES ($1, $2, $3)`,
+    [row.lead_email, row.name, row.keyHash]
+  )
+  return { row, key }
+}
+
+export async function findApiKey(key) {
+  const h = hashToken(String(key || ''))
+  if (useMemory) {
+    return memoryKeys.find(k => k.key_hash === h && !k.revoked_at && !k.revokedAt) || null
+  }
+  const res = await pool.query(
+    `SELECT id, lead_email, name, created_at, last_used_at FROM api_keys
+     WHERE key_hash = $1 AND revoked_at IS NULL`,
+    [h]
+  )
+  return res.rows[0] || null
+}
+
+export async function touchApiKey(id) {
+  if (useMemory) {
+    const k = memoryKeys.find(k => k.id === id)
+    if (k) k.lastUsedAt = new Date().toISOString()
+    return
+  }
+  await pool.query(`UPDATE api_keys SET last_used_at = now() WHERE id = $1`, [id])
+}
+
+export async function listApiKeys(email) {
+  const key = String(email).toLowerCase()
+  if (useMemory) {
+    return memoryKeys
+      .filter(k => k.lead_email === key)
+      .map(k => ({ id: k.id, name: k.name, created_at: k.createdAt, last_used_at: k.lastUsedAt, revoked: Boolean(k.revoked_at || k.revokedAt) }))
+  }
+  const res = await pool.query(
+    `SELECT id, name, created_at, last_used_at, (revoked_at IS NOT NULL) AS revoked
+     FROM api_keys WHERE lower(lead_email) = lower($1) ORDER BY created_at DESC`,
+    [email]
+  )
+  return res.rows
+}
+
+export async function revokeApiKey(id, email = null) {
+  if (useMemory) {
+    const k = memoryKeys.find(k => k.id === Number(id) && (!email || k.lead_email === String(email).toLowerCase()))
+    if (k) k.revokedAt = new Date().toISOString()
+    return Boolean(k)
+  }
+  const res = await pool.query(
+    `UPDATE api_keys SET revoked_at = now() WHERE id = $1 ${email ? 'AND lower(lead_email) = lower($2)' : ''} AND revoked_at IS NULL`,
+    email ? [id, email] : [id]
+  )
+  return (res.rowCount || 0) > 0
+}
+
+export async function persistSession({ sid, leadId, email, exp }) {
+  const row = {
+    sid, lead_id: leadId ?? null, email: String(email).toLowerCase(),
+    created_at: new Date().toISOString(), expires_at: new Date(exp).toISOString(), revoked_at: null,
+  }
+  if (useMemory) {
+    memorySessions.set(sid, row)
+    return row
+  }
+  await pool.query(
+    `INSERT INTO sessions (sid, lead_id, email, expires_at)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (sid) DO UPDATE SET expires_at = EXCLUDED.expires_at`,
+    [sid, leadId ?? null, row.email, row.expires_at]
+  )
+  return row
+}
+
+export async function findSession(sid) {
+  if (useMemory) return memorySessions.get(sid) || null
+  const res = await pool.query(
+    `SELECT sid, lead_id, email, created_at, expires_at, revoked_at FROM sessions WHERE sid = $1`,
+    [sid]
+  )
+  return res.rows[0] || null
+}
+
+export async function listSessions(email) {
+  const key = String(email).toLowerCase()
+  if (useMemory) {
+    return [...memorySessions.values()]
+      .filter(s => s.email === key && !s.revoked_at)
+      .map(s => ({ sid: s.sid.slice(0, 12), created_at: s.created_at, expires_at: s.expires_at }));
+  }
+  const res = await pool.query(
+    `SELECT substring(sid, 1, 12) AS sid, created_at, expires_at FROM sessions
+     WHERE lower(email) = lower($1) AND revoked_at IS NULL ORDER BY created_at DESC`,
+    [email]
+  )
+  return res.rows
+}
+
+export async function revokeSession(sid, email = null) {
+  if (useMemory) {
+    const s = memorySessions.get(sid)
+    if (s && (!email || s.email === String(email).toLowerCase())) {
+      s.revoked_at = new Date().toISOString()
+      return true
+    }
+    return false
+  }
+  const res = await pool.query(
+    `UPDATE sessions SET revoked_at = now() WHERE sid = $1 ${email ? 'AND lower(email) = lower($2)' : ''} AND revoked_at IS NULL`,
+    email ? [sid, email] : [sid]
+  )
+  return (res.rowCount || 0) > 0
+}
+
+export async function findSessionByPrefix(email, prefix) {
+  const key = String(email).toLowerCase()
+  const pre = String(prefix || '')
+  if (useMemory) {
+    for (const s of memorySessions.values()) {
+      if (s.email === key && s.sid.startsWith(pre)) return s.sid
+    }
+    return null
+  }
+  const res = await pool.query(
+    `SELECT sid FROM sessions WHERE lower(email) = lower($1) AND sid LIKE $2 || '%' AND revoked_at IS NULL LIMIT 1`,
+    [email, pre]
+  )
+  return res.rows[0]?.sid || null
+}
+
+function cryptoRandom(n) {
+  return Buffer.from(crypto.getRandomValues(new Uint8Array(n))).toString('base64url')
 }
 
 // ---------------------------------------------------------------------------

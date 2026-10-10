@@ -29,6 +29,8 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
   const [notice, setNotice] = useState('')
   const pdfInput = useRef(null)
   const imgInput = useRef(null)
+  const filesRef = useRef(files)
+  useEffect(() => { filesRef.current = files }, [files])
 
   const toSnap = () => ({
     notes,
@@ -89,13 +91,15 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
       setNotice('')
     }
     if (incoming.length === 0) return
-    setFiles(prev => ({
-      ...prev,
-      damageImages: [...prev.damageImages, ...incoming].filter(
-        (f, i, arr) => arr.findIndex(x => x.base64 === f.base64) === i
-      ),
-    }))
-  }, [t])
+    const merged = [...filesRef.current.damageImages, ...incoming].filter(
+      (f, i, arr) => arr.findIndex(x => x.base64 === f.base64) === i
+    )
+    const dupes = filesRef.current.damageImages.length + incoming.length - merged.length
+    if (dupes > 0) {
+      setNotice((n) => [n, t('upload.dupe', 'Skipped {n} duplicate photo(s).').replace('{n}', num(dupes))].filter(Boolean).join(' '))
+    }
+    setFiles(prev => ({ ...prev, damageImages: merged }))
+  }, [t, num])
 
   // Monotonic request id: rapid re-selections can't let a stale read win.
   const pdfReq = useRef(0)
