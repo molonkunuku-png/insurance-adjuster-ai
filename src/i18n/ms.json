@@ -1,0 +1,9 @@
+{
+  "hero.title": "Tukar foto kerosakan kepada draf sedia penyelaras.",
+  "hero.subtitle": "Muat naik dokumen polisi dan foto kerosakan. Themis membaca butiran polisi, menilai kerosakan, dan menghasilkan draf dengan petikan untuk semakan penyelaras.",
+  "common.humanReview": "Untuk semakan penyelaras",
+  "upload.policy.reading": "Membaca fail polisi…",
+  "upload.policy.scanned": "Polisi imbasan",
+  "upload.policy.ready": "Polisi berjaya diproses",
+  "error.pdf.readFailed": "PDF tidak dapat dibaca"
+}

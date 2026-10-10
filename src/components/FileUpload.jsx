@@ -4,8 +4,10 @@ import {
   AlertTriangle, ScanEye, RotateCcw, ArrowRight,
 } from 'lucide-react'
 import { extractPdfText, renderPdfPages } from '../lib/pdf'
+import { useI18n } from '../i18n'
 
 function FileUpload({ onUpload }) {
+  const { t } = useI18n()
   const [files, setFiles] = useState({ policyPdf: null, damageImages: [] })
   const [policy, setPolicy] = useState({ status: 'idle', text: '', images: [], numPages: 0, truncated: false, error: '' })
   const [notes, setNotes] = useState('')
@@ -37,7 +39,9 @@ function FileUpload({ onUpload }) {
   }, [])
 
   const addPdf = useCallback(async (file) => {
-    if (!file || file.type !== 'application/pdf') return
+    if (!file) return
+    const isPdf = file.type === 'application/pdf' || file.name?.toLowerCase().endsWith('.pdf')
+    if (!isPdf) return
     setFiles(prev => ({ ...prev, policyPdf: file }))
     setPolicy({ status: 'reading', text: '', images: [], numPages: 0, truncated: false, error: '' })
     try {
@@ -51,7 +55,7 @@ function FileUpload({ onUpload }) {
       }
     } catch (e) {
       console.error('[pdf] extraction failed', e)
-      setPolicy({ status: 'error', text: '', images: [], numPages: 0, truncated: false, error: e.message || 'Could not read PDF' })
+      setPolicy({ status: 'error', text: '', images: [], numPages: 0, truncated: false, error: e.message || 'Failed to read PDF. Try again or use a text-based PDF.' })
     }
   }, [])
 
@@ -142,13 +146,13 @@ function FileUpload({ onUpload }) {
           )}
           {pdfBusy && (
             <>
-              <div className="text-sm font-semibold text-[var(--accent)]">Reading policy…</div>
+              <div className="text-sm font-semibold text-[var(--accent)]">{t('upload.policy.reading', 'Reading policy…')}</div>
               <div className="mt-0.5 text-xs text-[var(--muted)]">extracting the fine print</div>
             </>
           )}
           {files.policyPdf && policy.status === 'ready' && (
             <>
-              <div className="text-sm font-semibold text-[var(--accent)]">Policy parsed</div>
+              <div className="text-sm font-semibold text-[var(--accent)]">{t('upload.policy.ready', 'Policy parsed')}</div>
               <div className="mt-0.5 max-w-[14rem] truncate text-xs text-[var(--muted)]">{files.policyPdf.name}</div>
               <div className="mt-1 text-[11px] text-[var(--muted)]">
                 {policy.numPages} page{policy.numPages > 1 ? 's' : ''} · {policy.text.length.toLocaleString()} chars{policy.truncated ? ' (first 30)' : ''}
@@ -157,14 +161,14 @@ function FileUpload({ onUpload }) {
           )}
           {files.policyPdf && policy.status === 'scanned' && (
             <>
-              <div className="text-sm font-semibold text-[var(--accent)]">Scanned policy</div>
+              <div className="text-sm font-semibold text-[var(--accent)]">{t('upload.policy.scanned', 'Scanned policy')}</div>
               <div className="mt-0.5 max-w-[14rem] truncate text-xs text-[var(--muted)]">{files.policyPdf.name}</div>
               <div className="mt-1 text-[11px] text-[var(--muted)]">no text layer · sending {policy.images.length} page image{policy.images.length > 1 ? 's' : ''}</div>
             </>
           )}
           {files.policyPdf && policy.status === 'error' && (
             <>
-              <div className="text-sm font-semibold text-[var(--danger)]">Couldn't read PDF</div>
+              <div className="text-sm font-semibold text-[var(--danger)]">{t('error.pdf.readFailed', "Couldn't read PDF")}</div>
               <div className="mt-0.5 max-w-[14rem] truncate text-xs text-[var(--muted)]">{policy.error}</div>
             </>
           )}

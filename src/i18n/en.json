@@ -1,0 +1,9 @@
+{
+  "hero.title": "Turn damage photos into an adjuster-ready draft.",
+  "hero.subtitle": "Upload a policy document and damage photos. Themis reads the fine print, assesses the damage, and drafts an adjuster-ready draft with citations for human review.",
+  "common.humanReview": "For human review",
+  "upload.policy.reading": "Reading policy…",
+  "upload.policy.scanned": "Scanned policy",
+  "upload.policy.ready": "Policy parsed",
+  "error.pdf.readFailed": "Couldn't read PDF"
+}

@@ -20,15 +20,47 @@ const RENDER_PAGE_CAP = 4
 const SCANNED_TEXT_THRESHOLD = 40
 
 let pdfjsPromise
+let workerEnsured = false
+
+async function ensureWorker(pdfjs) {
+  if (workerEnsured || pdfjs.GlobalWorkerOptions.workerSrc) return
+  try {
+    const mod = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
+    pdfjs.GlobalWorkerOptions.workerSrc = mod?.default || mod
+    workerEnsured = true
+    return
+  } catch {
+    // ignore, try next fallback
+  }
+  try {
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+      '../../node_modules/pdfjs-dist/build/pdf.worker.min.mjs',
+      import.meta.url
+    ).href
+    workerEnsured = true
+    return
+  } catch {
+    // ignore, try next fallback
+  }
+  try {
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+      '../../node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs',
+      import.meta.url
+    ).href
+    workerEnsured = true
+    return
+  } catch (err2) {
+    console.warn('PDF.js worker failed to load:', err2?.message)
+  }
+}
+
 function loadPdfjs() {
   if (!pdfjsPromise) {
-    pdfjsPromise = Promise.all([
-      import('pdfjs-dist'),
-      import('pdfjs-dist/build/pdf.worker.min.mjs?url'),
-    ]).then(([pdfjs, worker]) => {
-      pdfjs.GlobalWorkerOptions.workerSrc = worker.default
-      return pdfjs
-    })
+    pdfjsPromise = import('pdfjs-dist')
+      .then(async (pdfjs) => {
+        await ensureWorker(pdfjs)
+        return pdfjs
+      })
   }
   return pdfjsPromise
 }

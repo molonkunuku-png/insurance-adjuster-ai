@@ -12,6 +12,7 @@ import Mascot from './components/Mascot'
 import AskPanel from './components/AskPanel'
 import { analyzeDamageAndPolicy, generateReport } from './lib/ai'
 import { apiGet, apiPost } from './lib/api'
+import { I18nProvider, useI18n, LANGS } from './i18n'
 
 const THEMES = [
   { id: 'dark', label: 'Dark', Icon: Moon },
@@ -77,6 +78,26 @@ function ThemeToggle({ theme, onSelect }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function LangToggle() {
+  const { lang, setLang } = useI18n()
+  return (
+    <div className="flex items-center rounded-xl border border-[var(--line)] bg-[var(--bg-2)] p-0.5" role="group" aria-label="Language">
+      {LANGS.map(l => (
+        <button
+          key={l.id}
+          onClick={() => setLang(l.id)}
+          aria-pressed={l.id === lang}
+          className={`rounded-lg px-2.5 py-1.5 text-[12px] font-semibold transition ${
+            l.id === lang ? 'bg-[var(--accent)] text-[#0b0d17]' : 'text-[var(--muted)] hover:text-[var(--fg)]'
+          }`}
+        >
+          {l.label}
+        </button>
+      ))}
     </div>
   )
 }
@@ -246,6 +267,7 @@ function App() {
               </button>
             )}
             <ThemeToggle theme={theme} onSelect={setTheme} />
+            <LangToggle />
           </div>
         </div>
       </header>
@@ -277,6 +299,7 @@ function App() {
 }
 
 function UploadView({ onUpload }) {
+  const { t, lang } = useI18n()
   return (
     <div>
       <div className="fade-in mx-auto max-w-2xl text-center" style={{ animationDelay: '0ms' }}>
@@ -288,14 +311,19 @@ function UploadView({ onUpload }) {
           AI-powered claim assessment
         </span>
         <h1 className="mt-5 text-4xl font-extrabold leading-[1.1] tracking-tight sm:text-5xl">
-          Turn damage photos into a{' '}
-          <span className="bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] bg-clip-text text-transparent">
-            complete loss report
-          </span>
+          {lang === 'ms' ? (
+            t('hero.title')
+          ) : (
+            <>
+              Turn damage photos into an{' '}
+              <span className="bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] bg-clip-text text-transparent">
+                adjuster-ready draft
+              </span>
+            </>
+          )}
         </h1>
         <p className="mx-auto mt-4 max-w-lg text-[15px] leading-relaxed text-[var(--muted)]">
-          Upload a policy document and damage photos. Themis reads the fine print,
-          assesses the damage, and drafts an adjuster-ready report in seconds.
+          {t('hero.subtitle', 'Upload a policy document and damage photos. Themis reads the fine print, assesses the damage, and drafts an adjuster-ready draft with citations for human review.')}
         </p>
       </div>
 
@@ -379,4 +407,10 @@ function ResultView({ report, loading, onGenerate, onBack }) {
   )
 }
 
-export default App
+export default function Root() {
+  return (
+    <I18nProvider>
+      <App />
+    </I18nProvider>
+  )
+}
