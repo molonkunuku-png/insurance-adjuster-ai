@@ -11,8 +11,9 @@
  */
 
 import crypto from 'crypto'
+import { config } from './config.js'
 
-const JOB_TYPES = new Set(['welcome', 'access', 'waitlist', 'revoke', 'confirm', 'digest', 'nudge'])
+const JOB_TYPES = new Set(['access', 'waitlist', 'revoke', 'digest', 'nudge'])
 const MAX_ATTEMPTS = 5
 const DEAD_CAP = 200
 const QUEUE_CAP = 1000
@@ -49,6 +50,23 @@ function validJob({ type, to }) {
   return null
 }
 
+// Cap reservation shared by enqueue() and direct sends: throws like enqueue
+// would, without creating a job. Digest (admin-internal) is exempt.
+// Caps are env-tunable (QUEUE_LEAD_CAP / QUEUE_GLOBAL_CAP) for post-beta.
+export function checkCaps(to, type = 'access') {
+  if (type === 'digest') return
+  const email = String(to).toLowerCase()
+  const day = todayKey()
+  const rec = perLeadDay.get(email)
+  if (rec && rec.day === day && rec.n >= config.mail.queueLeadCap) {
+    throw new Error('queue: per-lead daily cap reached')
+  }
+  if (globalDay.day !== day) globalDay = { day, n: 0 }
+  if (globalDay.n >= config.mail.queueGlobalCap) {
+    throw new Error('queue: global daily cap reached')
+  }
+}
+
 export function enqueue({ type, to, payload = {}, notBefore = null, priority = 5, dedupeKey = null }) {
   const bad = validJob({ type, to })
   if (bad) throw new Error(`queue: ${bad}`)
@@ -67,18 +85,14 @@ export function enqueue({ type, to, payload = {}, notBefore = null, priority = 5
   }
   // Per-lead + global daily caps are reserved HERE at enqueue (not at send):
   // one enqueue reserves one send, so honest rejection happens up front.
+  // Caps are env-tunable (QUEUE_LEAD_CAP / QUEUE_GLOBAL_CAP) for post-beta.
   const day = todayKey()
   const rec = perLeadDay.get(email)
-  if (type !== 'digest') {
-    if (rec && rec.day === day && rec.n >= 3) {
-      logEvent({ ev: 'cap-lead', type, to: email })
-      throw new Error('queue: per-lead daily cap reached')
-    }
-    if (globalDay.day !== day) globalDay = { day, n: 0 }
-    if (globalDay.n >= 50) {
-      logEvent({ ev: 'cap-global', type, to: email })
-      throw new Error('queue: global daily cap reached')
-    }
+  try {
+    checkCaps(email, type)
+  } catch (e) {
+    logEvent({ ev: String(e.message).includes('per-lead') ? 'cap-lead' : 'cap-global', type, to: email })
+    throw e
   }
   const job = {
     id: crypto.randomUUID(),
@@ -115,6 +129,17 @@ export async function drainOnce(sendFn) {
   return tick(sendFn)
 }
 
+// Drain a bounded batch per tick (config.mail.queueDrain) so one slow send
+// can't starve the queue while keeping single-process memory bounded.
+export async function drainBatch(sendFn) {
+  const n = config.mail.queueDrain
+  for (let i = 0; i < n; i++) {
+    if (Date.now() < breakerUntil) return
+    if (dueJobs(Date.now()).length === 0) return
+    await tick(sendFn)
+  }
+}
+
 async function tick(sendFn) {
   if (Date.now() < breakerUntil) return
   const [job] = dueJobs(Date.now())
@@ -128,7 +153,10 @@ async function tick(sendFn) {
     consecFails += 1
     job.attempts += 1
     job.lastError = String(e?.message || e).slice(0, 300)
-    if (/smtp-5\d\d|hard bounce|dead|invalid|policy|auth/i.test(job.lastError)) {
+    // Permanent class: explicit flag from the dispatcher wins; the regex is
+    // the backstop for errors that predate the flag convention.
+    const permanent = Boolean(e?.permanent) || /smtp-5\d\d|hard bounce|dead|invalid|policy|auth/i.test(job.lastError)
+    if (permanent) {
       // Permanent: straight to dead-letter, plus suppression on hard bounces.
       if (/550|551|552|553|mailbox|unknown/i.test(job.lastError)) {
         suppression.set(job.to, { reason: job.lastError.slice(0, 120), until: Date.now() + 30 * 86400000 })
@@ -155,9 +183,23 @@ async function tick(sendFn) {
 export function startWorker(sendFn, { everyMs = 5000 } = {}) {
   if (workerTimer) return
   workerTimer = setInterval(() => {
-    tick(sendFn).catch(e => console.error('[queue] tick failed:', e.message))
+    drainBatch(sendFn).catch(e => console.error('[queue] tick failed:', e.message))
   }, everyMs)
   workerTimer.unref?.()
+}
+
+// Prune TTL-bearing maps (dedupe expiries, stale day buckets, dead codes).
+// Called daily; day-keyed counters also roll lazily on access.
+export function pruneStale() {
+  const now = Date.now()
+  const today = todayKey()
+  for (const [k, v] of dedupe) {
+    if (v.exp < now) dedupe.delete(k)
+  }
+  for (const [k, v] of perLeadDay) {
+    if (v.day !== today) perLeadDay.delete(k)
+  }
+  if (globalDay.day !== today) globalDay = { day: today, n: 0 }
 }
 
 export function registerSweep(name, ms, fn) {

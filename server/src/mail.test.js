@@ -60,13 +60,12 @@ function dummyServer(mode = 'ok') {
 }
 
 const clientOpts = (port) => ({
-  host: '127.0.0.1', port, user: 'u', pass: 'p',
+  host: '127.0.0.1', port, user: 'u', pass: 'p', allowPlain: true,
   connectMs: 3000, cmdMs: 3000, dataMs: 5000, totalMs: 15000,
 })
 
 describe('SmtpClient (own protocol)', () => {
   it('completes EHLO→AUTH→MAIL→RCPT→DATA→QUIT with multiline EHLO', async () => {
-    process.env.SMTP_ALLOW_PLAIN = '1'
     const { server, port, transcript } = await dummyServer('ok')
     try {
       const r = await new SmtpClient(clientOpts(port)).send({
@@ -83,7 +82,6 @@ describe('SmtpClient (own protocol)', () => {
   })
 
   it('surfaces 5xx as permanent-class errors', async () => {
-    process.env.SMTP_ALLOW_PLAIN = '1'
     const { server, port } = await dummyServer('rcpt550')
     try {
       await assert.rejects(
@@ -141,7 +139,7 @@ describe('queue', () => {
 
   it('sends due jobs and audits the event', async () => {
     __reset()
-    enqueue({ type: 'confirm', to: 's@x.test', payload: {} })
+    enqueue({ type: 'access', to: 's@x.test', payload: {} })
     const r = await drainOnce(async () => ({ ok: true, provider: 'fake' }))
     assert.equal(r, undefined)
     assert.equal(queueStatus().depth, 0)
@@ -193,8 +191,8 @@ describe('templates', () => {
   it('every type renders EN+BM with CTA parity', () => {
     for (const type of TEMPLATE_TYPES) {
       for (const lang of ['en', 'ms']) {
-        const vars = { name: 'Jane', accessUrl: 'https://app.test/x', ttl: '48 hours' }
-        const t = renderTemplate(type, lang, type === 'access' || type === 'nudge' ? vars : { name: 'Jane' })
+        const vars = { name: 'Jane', accessUrl: 'https://app.test/x', ttl: '48 hours', date: '2026-01-01', counts: { pending: 1, invited: 2, active: 3 } }
+        const t = renderTemplate(type, lang, (type === 'access' || type === 'nudge' ? vars : type === 'digest' ? { name: 'Jane', date: '2026-01-01', counts: { pending: 1, invited: 2, active: 3 } } : { name: 'Jane' }))
         assert.ok(t.subject.length > 0 && t.text.length > 0 && t.html.length > 0, `${type}/${lang}`)
         if (type === 'access' || type === 'nudge') {
           assert.ok(t.text.includes('https://app.test/x') && t.html.includes('https://app.test/x'))

@@ -10,6 +10,8 @@ import { mailEnv, SmtpClient, fileLogSend } from './mailer.js'
 import { sendTemplated } from './email.js'
 import { renderTemplate } from './templates.js'
 import { pairedChat, sendTelegram, telegramEnabled } from './telegram.js'
+import { checkCaps } from './queue.js'
+import { config } from './config.js'
 
 const permanent = (msg) => {
   const e = new Error(msg)
@@ -18,7 +20,7 @@ const permanent = (msg) => {
 }
 
 async function viaTelegram(job) {
-  const pair = pairedChat(job.to)
+  const pair = await pairedChat(job.to).catch(() => null)
   if (!pair || !telegramEnabled()) return null
   const t = renderTemplate(job.type, pair.lang, {
     name: job.payload.name || 'there',
@@ -49,6 +51,10 @@ async function viaSmtp(job) {
       subject: t.subject,
       text: t.text,
       html: t.html,
+      headers: {
+        'Reply-To': config.contactEmail,
+        'List-Unsubscribe': `<mailto:${config.contactEmail}>`,
+      },
       dkim: cfg.dkimDomain && cfg.dkimKey
         ? { domain: cfg.dkimDomain, selector: cfg.dkimSelector, key: cfg.dkimKey }
         : null,
@@ -88,7 +94,10 @@ export async function sendJob(job) {
       if (e?.permanent || /policy/i.test(String(e?.message || ''))) break
     }
   }
-  // Durable file log: the link is never lost even when every sender fails.
+  // Durable file log: the link content is preserved for dev even when every
+  // sender fails. This RESOLVES (not throws): the mail is durably logged,
+  // so the queue must not retry it, count it toward the breaker, or
+  // dead-letter it. Callers treat provider 'filelog' as "not emailed".
   const t = (() => {
     try {
       return renderTemplate(job.type, job.payload.lang || 'en', {
@@ -99,13 +108,12 @@ export async function sendJob(job) {
     } catch { return { subject: job.type, text: JSON.stringify(job.payload).slice(0, 1000) } }
   })()
   await fileLogSend({ to: job.to, subject: t.subject, text: t.text, template: job.type })
-  const err = new Error(`all-senders-failed: ${errors.join(' | ').slice(0, 240) || 'no sender configured'}`)
-  err.logged = true
-  throw err
+  return { ok: true, provider: 'filelog', logged: true }
 }
 
 /** Synchronous best-effort attempt for honest request-time status (8s budget). */
 export async function trySendNow(job, ms = 8000) {
+  checkCaps(job.to, job.type)
   return Promise.race([
     sendJob(job),
     new Promise((_, reject) => setTimeout(() => reject(new Error('send-timeout:8s')), ms)),

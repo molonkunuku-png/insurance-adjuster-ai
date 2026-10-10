@@ -68,6 +68,8 @@ export async function analyzeDamageAndPolicy(images, policyText) {
       perils: buildPerils(policyText, ''),
     }
   } catch {
+    // Malformed model JSON keeps the same contract: truncated raw text plus
+    // deterministic gaps/perils so downstream UI never branches on absence.
     return {
       coverage: content.substring(0, 500),
       damage: 'See detailed analysis',
@@ -75,6 +77,8 @@ export async function analyzeDamageAndPolicy(images, policyText) {
       nextSteps: ['Review full report'],
       confidence: 'low',
       needsReview: true,
+      gaps: buildGaps(policyText, ''),
+      perils: buildPerils(policyText, ''),
     }
   }
 }

@@ -13,7 +13,8 @@ import {
 } from './engine.js'
 import {
   initDb, saveBetaLead, approveLead, findLeadByTokenHash, findLeadByEmail, markLogin,
-  purgeExpiredTokens,
+  purgeExpiredTokens, pairGet, pairSet, pairDelByChatId, pairFindByChatId,
+  listBetaLeads, oldestPending,
 } from './db.js'
 import { generateAccessToken, hashToken, createSession, verifySession } from './auth.js'
 
@@ -127,8 +128,7 @@ describe('localAsk (E42: verbatim quotes only)', () => {
   })
 })
 
-describe('lead language preference', () => {
-  it('persists lang through save + lookup', async () => {
+describe('lead language preference', () => {  it('persists lang through save + lookup', async () => {
     await saveBetaLead({ name: 'BM', email: 'lang-ms@example.com', lang: 'ms' })
     const found = await findLeadByEmail('lang-ms@example.com')
     assert.equal(found?.lang, 'ms')
@@ -141,7 +141,53 @@ describe('lead language preference', () => {
   })
 })
 
-describe('magic-link tokens (D55: single-use + expiry)', () => {  it('a used token cannot verify twice', async () => {
+describe('telegram pairings + safe admin projection', () => {
+  it('round-trips pair set/get/find/delete', async () => {
+    await pairSet('pair@example.com', '12345', 'ms')
+    const got = await pairGet('pair@example.com')
+    assert.equal(got?.chatId, '12345')
+    assert.equal(got?.lang, 'ms')
+    assert.equal((await pairFindByChatId('12345'))?.email, 'pair@example.com')
+    await pairDelByChatId('12345')
+    assert.equal(await pairGet('pair@example.com'), null)
+  })
+
+  it('memory admin list omits token hashes', async () => {
+    await saveBetaLead({ name: 'H', email: 'hashhide@example.com' })
+    await approveLead({ email: 'hashhide@example.com', tokenHash: 'secret-hash', expiresAt: new Date(Date.now() + 3600000) })
+    const rows = await listBetaLeads(200, 0)
+    const row = rows.find(r => r.email === 'hashhide@example.com')
+    assert.ok(row)
+    assert.equal(row.accessTokenHash, undefined)
+    assert.equal(row.access_token_hash, undefined)
+  })
+
+  it('approveLead preserves active status on re-mint', async () => {
+    await saveBetaLead({ name: 'A', email: 'stayactive@example.com' })
+    await approveLead({ email: 'stayactive@example.com', tokenHash: 'h1', expiresAt: new Date(Date.now() + 3600000) })
+    const { lead } = await saveBetaLead({ name: 'A', email: 'stayactive@example.com' })
+    lead.status = 'active' // simulate verified login
+    await approveLead({ email: 'stayactive@example.com', tokenHash: 'h2', expiresAt: new Date(Date.now() + 3600000) })
+    assert.equal((await findLeadByEmail('stayactive@example.com'))?.status, 'active')
+  })
+
+  it('oldestPending returns earliest pending lead', async () => {
+    await saveBetaLead({ name: 'P1', email: 'pend1@example.com' })
+    await saveBetaLead({ name: 'P2', email: 'pend2@example.com' })
+    const next = await oldestPending()
+    assert.ok(next && next.status === 'pending')
+  })
+
+  it('oldestPending skips the just-revoked address', async () => {
+    await saveBetaLead({ name: 'R1', email: 'revskip1@example.com' })
+    await saveBetaLead({ name: 'R2', email: 'revskip2@example.com' })
+    const next = await oldestPending('revskip1@example.com')
+    assert.ok(next && next.email !== 'revskip1@example.com' && next.status === 'pending')
+  })
+})
+
+describe('magic-link tokens (D55: single-use + expiry)', () => {
+  it('a used token cannot verify twice', async () => {
     const { lead } = await saveBetaLead({ name: 'T', email: 'single-use@example.com' })
     const token = generateAccessToken()
     await approveLead({ email: lead.email, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 3600000) })

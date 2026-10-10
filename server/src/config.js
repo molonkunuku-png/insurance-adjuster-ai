@@ -38,6 +38,32 @@ export const config = {
 
   dailyAnalysisCap: int(process.env.DAILY_ANALYSIS_CAP, 25),
 
+  // ---- mail + channel knobs (single source of truth; modules below must
+  // read these instead of raw process.env) ----
+  mail: {
+    provider: (process.env.EMAIL_PROVIDER || 'gmail').toLowerCase(),
+    enabled: process.env.EMAIL_ENABLED !== 'false',
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: int(process.env.SMTP_PORT, 587),
+    user: process.env.GMAIL_USER || process.env.SMTP_USER || '',
+    pass: process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS || '',
+    from: process.env.MAIL_FROM || process.env.GMAIL_USER || '',
+    fromName: process.env.MAIL_FROM_NAME || 'Themis Adjuster AI',
+    dkimDomain: process.env.DKIM_DOMAIN || '',
+    dkimSelector: process.env.DKIM_SELECTOR || 'themis',
+    dkimKey: process.env.DKIM_PRIVATE_KEY || '',
+    // Test-only plaintext SMTP; forcibly off in production.
+    allowPlain: process.env.SMTP_ALLOW_PLAIN === '1' && (process.env.NODE_ENV || 'development') !== 'production',
+    breakGlass: process.env.BREAK_GLASS === '1',
+    telegramToken: process.env.TELEGRAM_BOT_TOKEN || '',
+    telegramEnabled: process.env.TELEGRAM_ENABLED !== 'false',
+    telegramBotName: process.env.TELEGRAM_BOT_NAME || '',
+    outboxDir: process.env.OUTBOX_DIR || '',
+    queueGlobalCap: int(process.env.QUEUE_GLOBAL_CAP, 50),
+    queueLeadCap: int(process.env.QUEUE_LEAD_CAP, 3),
+    queueDrain: Math.min(Math.max(int(process.env.QUEUE_DRAIN, 3), 1), 10),
+  },
+
   // Beta access
   sessionSecret: process.env.SESSION_SECRET || '',
   adminSecret: process.env.ADMIN_SECRET || '',
@@ -48,6 +74,18 @@ export const config = {
 }
 
 export const isProd = config.nodeEnv === 'production'
+
+if (isProd) {
+  if (!config.sessionSecret || config.sessionSecret.length < 32) {
+    console.warn('[config] SESSION_SECRET missing or short in production — auth will refuse to boot')
+  }
+  if (!config.adminSecret || config.adminSecret.length < 32) {
+    console.warn('[config] ADMIN_SECRET missing or short in production — admin gate is dead')
+  }
+  if (config.mail.allowPlain) {
+    console.warn('[config] SMTP_ALLOW_PLAIN is forcibly ignored in production')
+  }
+}
 
 export function assertEmailConfig() {
   if (!config.resendKey) {

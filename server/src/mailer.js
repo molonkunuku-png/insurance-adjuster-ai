@@ -12,22 +12,26 @@
 import net from 'net'
 import tls from 'tls'
 import crypto from 'crypto'
-import { appendFile, mkdir } from 'fs/promises'
+import { appendFile, mkdir, stat, readFile, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { config } from './config.js'
 
 export const mailEnv = () => ({
-  provider: (process.env.EMAIL_PROVIDER || 'gmail').toLowerCase(),
-  enabled: process.env.EMAIL_ENABLED !== 'false',
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.SMTP_PORT || '587', 10),
-  user: process.env.GMAIL_USER || process.env.SMTP_USER || '',
-  pass: process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS || '',
-  from: process.env.MAIL_FROM || process.env.GMAIL_USER || '',
-  fromName: process.env.MAIL_FROM_NAME || 'Themis Adjuster AI',
-  dkimDomain: process.env.DKIM_DOMAIN || '',
-  dkimSelector: process.env.DKIM_SELECTOR || 'themis',
-  dkimKey: process.env.DKIM_PRIVATE_KEY || '',
+  provider: config.mail.provider,
+  enabled: config.mail.enabled,
+  host: config.mail.host,
+  port: config.mail.port,
+  user: config.mail.user,
+  pass: config.mail.pass,
+  from: config.mail.from,
+  fromName: config.mail.fromName,
+  dkimDomain: config.mail.dkimDomain,
+  dkimSelector: config.mail.dkimSelector,
+  dkimKey: config.mail.dkimKey,
+  // Test-only plaintext escape hatch. Forcibly off in production: credentials
+  // must never traverse the wire unencrypted outside a local dummy server.
+  allowPlain: config.mail.allowPlain,
   connectMs: 10000,
   cmdMs: 15000,
   dataMs: 30000,
@@ -43,7 +47,9 @@ const withDeadline = (promise, ms, phase) =>
 /** Minimal SMTP submission client. One connection, one mail, sequential commands. */
 export class SmtpClient {
   constructor(opts) {
-    this.o = opts
+    // allowPlain defaults from config (forced off in prod); tests pass it
+    // explicitly since config snapshots env at import time.
+    this.o = { allowPlain: false, ...opts }
     this.sock = null
     this.buf = ''
     this.waiters = []
@@ -123,9 +129,9 @@ export class SmtpClient {
       await this._greet(sock)
       const host = (process.env.APP_URL || 'https://insurance-adjuster-ai1.onrender.com').replace(/^https?:\/\//, '').split('/')[0] || 'localhost'
       let exts = await this._ehlo(sock, host)
-      // Test-only escape hatch (SMTP_ALLOW_PLAIN=1): skip TLS against a local
-      // dummy server. Never set in production — credentials would leak.
-      const allowPlain = process.env.SMTP_ALLOW_PLAIN === '1'
+      // Test-only escape hatch (constructor opt, forced off in production
+      // config): skip TLS against a local dummy server. Never set outside tests.
+      const allowPlain = Boolean(this.o.allowPlain)
       if (o.port !== 465 && !allowPlain) {
         if (!/STARTTLS/i.test(exts)) throw new Error('smtp-no-starttls')
         await this._cmd(sock, 'STARTTLS', Math.min(o.cmdMs, left()))
@@ -175,9 +181,29 @@ export class SmtpClient {
   }
 }
 
-const qp = (s) => Buffer.from(String(s || ''), 'utf8').toString().replace(/=/g, '=3D')
-  .replace(/[^ -<>-~]/g, (c) => Buffer.from(c, 'utf8').toString('hex').toUpperCase().split(/(..)/g).filter(Boolean).map(h => `=${h}`).join(''))
-  .replace(/(.{1,72})( +)/g, '$1=\r\n$2')
+/** Quoted-printable encoder that folds at 76 chars (RFC 2045 §6.7). */
+const qp = (s) => {
+  const bytes = Buffer.from(String(s || ''), 'utf8')
+  let out = ''
+  let line = ''
+  const push = (tok) => {
+    if ((line + tok).length > 75) {
+      // Never break inside an =XX triplet and never leave trailing space bare.
+      out += `${line}=\r\n`
+      line = ''
+    }
+    line += tok
+  }
+  for (const b of bytes) {
+    const t = (b >= 33 && b <= 126 && b !== 61)
+      ? String.fromCharCode(b)
+      : `=${b.toString(16).toUpperCase().padStart(2, '0')}`
+    push(t)
+  }
+  // A trailing space/tab must be encoded, not left bare at line end.
+  line = line.replace(/[ \t]$/, (c) => `=${c.charCodeAt(0).toString(16).toUpperCase()}`)
+  return out + line
+}
 
 const rfc2047 = (s) => /[^\x20-\x7E]/.test(String(s || ''))
   ? `=?UTF-8?B?${Buffer.from(String(s), 'utf8').toString('base64')}?=`
@@ -235,16 +261,29 @@ export function buildMime({ from, fromName, to, subject, text, html, headers = {
     `--${boundary}--`,
     '',
   ]
-  return `${head.join('\r\n')}\r\n${parts.join('\r\n')}`
+  // RFC 5321 §4.5.2: dot-stuff any body line beginning with '.' so a lone
+  // dot can never truncate the message at the DATA terminator.
+  return `${head.join('\r\n')}\r\n${parts.join('\r\n')}`.replace(/^\./gm, '..')
 }
 
 /** File-log adapter: durable dev fallback, never sends anywhere. */
 export async function fileLogSend({ to, subject, text, template }) {
-  const dir = process.env.OUTBOX_DIR || join(tmpdir(), 'themis-outbox')
+  const dir = config.mail.outboxDir || join(tmpdir(), 'themis-outbox')
   await mkdir(dir, { recursive: true })
-  const line = JSON.stringify({ at: new Date().toISOString(), to, subject, template, text: String(text || '').slice(0, 2000) })
-  await appendFile(join(dir, 'outbox.log'), `${line}\n`)
-  return { ok: true, provider: 'filelog', path: join(dir, 'outbox.log') }
+  const file = join(dir, 'outbox.log')
+  // Bearer tokens must never persist: redact magic-link URLs at write time.
+  const safeText = String(text || '').replace(/verify\?token=[^\s"']+/g, 'verify?token=[redacted]').slice(0, 2000)
+  const line = JSON.stringify({ at: new Date().toISOString(), to, subject, template, text: safeText })
+  await appendFile(file, `${line}\n`)
+  // Rotate: keep the log bounded (last ~500 lines) instead of growing forever.
+  try {
+    const st = await stat(file)
+    if (st.size > 1024 * 1024) {
+      const lines = (await readFile(file, 'utf8')).split('\n').filter(Boolean).slice(-500)
+      await writeFile(file, `${lines.join('\n')}\n`)
+    }
+  } catch { /* rotation is best-effort */ }
+  return { ok: true, provider: 'filelog', path: file }
 }
 
 /** Quick TCP dial probe per port (3s each). Never blocks boot. */

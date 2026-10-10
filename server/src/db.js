@@ -36,7 +36,14 @@ CREATE TABLE IF NOT EXISTS beta_leads (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS beta_leads_email_idx ON beta_leads (lower(email));
 CREATE INDEX IF NOT EXISTS beta_leads_token_idx ON beta_leads (access_token_hash);
+CREATE INDEX IF NOT EXISTS beta_leads_token_expiry_idx ON beta_leads (token_expires_at) WHERE access_token_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS beta_leads_status_created_idx ON beta_leads (status, created_at DESC);
+CREATE TABLE IF NOT EXISTS telegram_pairs (
+  email        TEXT PRIMARY KEY,
+  chat_id      TEXT NOT NULL,
+  lang         TEXT NOT NULL DEFAULT 'en',
+  paired_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 -- Access / invite columns (added incrementally for existing deployments)
 ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS access_token_hash TEXT;
@@ -63,15 +70,21 @@ export async function initDb() {
   }
   pool = new Pool({
     connectionString: config.databaseUrl,
-    ssl: config.databaseUrl.includes('localhost') ? false : { rejectUnauthorized: false },
+    ssl: config.databaseUrl.includes('localhost') ? false : (process.env.PGSSL_VERIFY === 'strict' ? true : { rejectUnauthorized: false }),
   })
   try {
     await pool.query(SCHEMA)
     console.log('[db] connected and schema ready')
   } catch (err) {
-    console.error('[db] init failed, falling back to memory:', err.message)
+    // Fail closed in production: a silent memory fallback would lose every
+    // lead and bypass the beta cap. Local dev (no DATABASE_URL) keeps memory.
+    console.error('[db] init failed:', err.message)
     useMemory = true
     pool = null
+    if ((process.env.NODE_ENV || 'development') === 'production') {
+      throw new Error(`[db] refusing to boot without Postgres in production: ${err.message}`)
+    }
+    console.warn('[db] development fallback to memory store')
   }
   // Daily purge of expired magic-token hashes (stale hashes must not accumulate).
   const timer = setInterval(() => {
@@ -117,7 +130,7 @@ export async function saveBetaLead({ name, email, role, claimsPerMonth, source, 
      ON CONFLICT (lower(email))
      DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role,
                    claims_per_month = EXCLUDED.claims_per_month, lang = EXCLUDED.lang
-     RETURNING id, name, email, role, claims_per_month, status, created_at, (xmax = 0) AS created`,
+     RETURNING id, name, email, role, claims_per_month, status, lang, created_at, (xmax = 0) AS created`,
     [name, email, role || null, claimsPerMonth || null, source || 'themis-beta', cleanLang]
   )
   const row = res.rows[0]
@@ -153,8 +166,24 @@ export async function countByStatus() {
   return out
 }
 
-export async function purgeExpiredTokens() {
-  const now = new Date()
+export async function oldestPending(excludeEmail = null) {
+  const ex = excludeEmail ? String(excludeEmail).toLowerCase() : null
+  if (useMemory) {
+    const pend = memory.betaLeads
+      .filter(l => l.status === 'pending' && (!ex || l.email.toLowerCase() !== ex))
+      .sort((a, b) => String(a.createdAt || '') < String(b.createdAt || '') ? -1 : 1)
+    return pend[0] || null
+  }
+  const res = await pool.query(
+    `SELECT id, name, email, status, lang FROM beta_leads
+     WHERE status = 'pending' AND ($2::text IS NULL OR lower(email) <> $2)
+     ORDER BY created_at ASC LIMIT 1`,
+    [ex]
+  )
+  return res.rows[0] || null
+}
+
+export async function purgeExpiredTokens() {  const now = new Date()
   if (useMemory) {
     let n = 0
     for (const l of memory.betaLeads) {
@@ -177,7 +206,8 @@ export async function approveLead({ email, tokenHash, expiresAt }) {
   if (useMemory) {
     const lead = memory.betaLeads.find(l => l.email.toLowerCase() === email.toLowerCase())
     if (!lead) return null
-    lead.status = 'invited'
+    // Preserve active sessions: re-mints (resend/nudge) must not demote.
+    if (lead.status !== 'active') lead.status = 'invited'
     lead.accessTokenHash = tokenHash
     lead.tokenExpiresAt = expiresAt
     lead.invitedAt = new Date().toISOString()
@@ -185,7 +215,8 @@ export async function approveLead({ email, tokenHash, expiresAt }) {
   }
   const res = await pool.query(
     `UPDATE beta_leads
-     SET status = 'invited', access_token_hash = $2, token_expires_at = $3, invited_at = now()
+     SET status = CASE WHEN status = 'active' THEN 'active' ELSE 'invited' END,
+         access_token_hash = $2, token_expires_at = $3, invited_at = now()
      WHERE lower(email) = lower($1)
      RETURNING id, name, email, status`,
     [email, tokenHash, expiresAt]
@@ -266,7 +297,17 @@ export async function revokeLead(email) {
 export async function listBetaLeads(limit = 200, offset = 0) {
   const lim = Math.min(Math.max(Number(limit) || 200, 1), 200)
   const off = Math.max(Number(offset) || 0, 0)
-  if (useMemory) return memory.betaLeads.slice(off, off + lim)
+  // Memory branch projects the exact safe column set the PG branch selects —
+  // token hashes must never reach the admin API from either store.
+  const project = (l) => ({
+    id: l.id, name: l.name, email: l.email, role: l.role ?? null,
+    claims_per_month: l.claimsPerMonth ?? l.claims_per_month ?? null,
+    status: l.status, created_at: l.createdAt ?? l.created_at,
+    invited_at: l.invitedAt ?? l.invited_at ?? null,
+    last_login_at: l.lastLoginAt ?? l.last_login_at ?? null,
+    uses: l.uses ?? 0,
+  })
+  if (useMemory) return memory.betaLeads.slice(off, off + lim).map(project)
   const res = await pool.query(
     `SELECT id, name, email, role, claims_per_month, status, created_at, invited_at, last_login_at, uses
      FROM beta_leads ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
@@ -277,4 +318,62 @@ export async function listBetaLeads(limit = 200, offset = 0) {
 
 export function dbMode() {
   return useMemory ? 'memory' : 'postgres'
+}
+
+// ---------------------------------------------------------------------------
+// Telegram pairings (chat_id <-> lead email). Memory-first like leads;
+// Postgres table when configured. Re-pairing after a restart is supported.
+// ---------------------------------------------------------------------------
+const memoryPairs = new Map() // email -> { chatId, lang, pairedAt }
+
+export async function pairGet(email) {
+  const key = String(email).toLowerCase()
+  if (useMemory) return memoryPairs.get(key) || null
+  const res = await pool.query(
+    `SELECT email, chat_id AS "chatId", lang, paired_at AS "pairedAt" FROM telegram_pairs WHERE email = $1`,
+    [key]
+  )
+  return res.rows[0] || null
+}
+
+export async function pairSet(email, chatId, lang = 'en') {
+  const key = String(email).toLowerCase()
+  const row = { chatId: String(chatId), lang: lang === 'ms' ? 'ms' : 'en', pairedAt: new Date().toISOString() }
+  if (useMemory) {
+    memoryPairs.set(key, row)
+    return row
+  }
+  await pool.query(
+    `INSERT INTO telegram_pairs (email, chat_id, lang, paired_at)
+     VALUES ($1, $2, $3, now())
+     ON CONFLICT (email) DO UPDATE SET chat_id = EXCLUDED.chat_id, lang = EXCLUDED.lang, paired_at = now()`,
+    [key, row.chatId, row.lang]
+  )
+  return row
+}
+
+export async function pairDelByChatId(chatId) {
+  const cid = String(chatId)
+  if (useMemory) {
+    for (const [email, p] of memoryPairs) {
+      if (String(p.chatId) === cid) memoryPairs.delete(email)
+    }
+    return
+  }
+  await pool.query(`DELETE FROM telegram_pairs WHERE chat_id = $1`, [cid])
+}
+
+export async function pairFindByChatId(chatId) {
+  const cid = String(chatId)
+  if (useMemory) {
+    for (const [email, p] of memoryPairs) {
+      if (String(p.chatId) === cid) return { email, ...p }
+    }
+    return null
+  }
+  const res = await pool.query(
+    `SELECT email, chat_id AS "chatId", lang, paired_at AS "pairedAt" FROM telegram_pairs WHERE chat_id = $1 LIMIT 1`,
+    [cid]
+  )
+  return res.rows[0] || null
 }

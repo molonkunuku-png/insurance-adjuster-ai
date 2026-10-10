@@ -9,7 +9,7 @@ import { config, isProd } from './config.js'
 import {
   saveBetaLead, listBetaLeads, dbMode, countInvited, approveLead,
   findLeadByTokenHash, findLeadByEmail, markLogin, revokeLead,
-  countByStatus, findExpiringLeads,
+  countByStatus, findExpiringLeads, oldestPending,
 } from './db.js'
 import {
   sendAdminNotification, resendConfigured,
@@ -23,10 +23,15 @@ import {
 } from './auth.js'
 import {
   enqueue, registerSweep, queueStatus, deadList, replayJob,
-  suppress, unsuppress, suppressionList, eventLog,
+  suppress, unsuppress, suppressionList, eventLog, pruneStale,
 } from './queue.js'
 import { trySendNow } from './send.js'
-import { issuePairingCode } from './telegram.js'
+import { issuePairingCode, telegramEnabled } from './telegram.js'
+import { mailEnv } from './mailer.js'
+
+// The live sender is Gmail SMTP, not Resend: gate generic mail flows on
+// either credential set, never on the Resend key alone.
+const mailConfigured = () => Boolean(mailEnv().user && mailEnv().pass) || resendConfigured()
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distDir = join(__dirname, '..', '..', 'dist')
@@ -112,6 +117,8 @@ export function createApp() {
 
   // ---- health ----
   app.get('/api/health', (_req, res) => {
+    const cfg = mailEnv()
+    const lastMail = [...eventLog()].reverse().find(e => e.ev === 'sent' || e.ev === 'dead' || e.ev === 'breaker-open')
     res.json({
       ok: true,
       db: dbMode(),
@@ -123,6 +130,12 @@ export function createApp() {
       env: config.nodeEnv,
       uptime: Math.round(process.uptime()),
       build: process.env.RENDER_GIT_COMMIT || 'dev',
+      mail: {
+        gmailCreds: Boolean(cfg.user && cfg.pass),
+        telegram: telegramEnabled(),
+        queue: queueStatus(),
+        last: lastMail ? { ev: lastMail.ev, type: lastMail.type, at: lastMail.at } : null,
+      },
     })
   })
 
@@ -185,7 +198,7 @@ export function createApp() {
       let notified = 'skipped'
       let accessUrl = null
 
-      if (resendConfigured()) {
+      if (mailConfigured()) {
         if (grantAccess) {
           const r = await grantAndSend({ ...clean, lang: clean.lang })
           mail = { status: r.emailSent ? 'sent' : (r.queued ? 'queued' : 'failed'), provider: r.provider || null, error: r.error || null }
@@ -248,7 +261,7 @@ export function createApp() {
       let mail = { status: 'skipped', provider: null, error: null }
       if (lead && (lead.status === 'invited' || lead.status === 'active')) {
         const leadLang = lead.lang === 'ms' ? 'ms' : 'en'
-        if (resendConfigured()) {
+        if (mailConfigured()) {
           const r = await grantAndSend({ name: lead.name, email, lang: leadLang })
           mail = { status: r.emailSent ? 'sent' : (r.queued ? 'queued' : 'failed'), provider: r.provider || null, error: r.error || null }
           if (!r.emailSent) accessUrl = r.accessUrl
@@ -258,7 +271,7 @@ export function createApp() {
           accessUrl = r.accessUrl
           mail = { status: 'failed', provider: null, error: 'no mailer configured (dev fallback link shown)' }
         }
-      } else if (lead && resendConfigured()) {
+      } else if (lead && mailConfigured()) {
         try {
           await trySendNow({ id: `direct-confirm-${Date.now()}`, type: 'confirm', to: email, payload: { name: lead.name, lang: lead.lang === 'ms' ? 'ms' : 'en' }, attempts: 0 })
         } catch { /* confirmation is best-effort; resend stays neutral */ }
@@ -369,7 +382,7 @@ export function createApp() {
       if ((await countInvited()) >= config.betaLimit) {
         return res.status(403).json({ error: 'Beta cap reached — raise BETA_LIMIT to invite more' })
       }
-      if (resendConfigured()) await grantAndSend({ name: lead.name, email })
+      if (mailConfigured()) await grantAndSend({ name: lead.name, email })
       console.log(`[admin] invite email=${email} by=${req.ip}`)
       res.json({ ok: true, email })
     } catch (e) {
@@ -383,9 +396,24 @@ export function createApp() {
       const email = str(req.body?.email, 200).toLowerCase()
       await revokeLead(email)
       console.log(`[admin] revoke ok by=${req.ip}`)
+      // A freed slot auto-promotes the oldest waitlisted lead so the cap
+      // never strands pending signups with no path forward.
+      let promoted = null
+      try {
+        if ((await countInvited()) < config.betaLimit) {
+          // Never re-promote the address just revoked in this same call.
+          const next = await oldestPending(email)
+          if (next) {
+            const r = await grantAndSend({ name: next.name, email: next.email, lang: next.lang || 'en' })
+            promoted = { email: next.email, sent: r.emailSent }
+          }
+        }
+      } catch (e) {
+        console.warn('[admin] waitlist promotion failed:', e.message)
+      }
       // Neutral response either way: with a valid admin secret the caller
       // already passed the gate; nothing about other users leaks here.
-      res.json({ ok: true })
+      res.json({ ok: true, ...(promoted ? { promoted } : {}) })
     } catch (e) {
       console.error('[admin/revoke] error:', e.message)
       res.status(500).json({ error: 'Revoke failed' })
@@ -443,16 +471,18 @@ export function createApp() {
   // Telegram pairing code for the signed-in lead (bot token required server-side).
   app.get('/api/telegram/pair', requireAuth, async (req, res) => {
     try {
+      if (!telegramEnabled()) {
+        return res.status(503).json({ error: 'Telegram channel not configured', code: 'telegramDisabled' })
+      }
       const code = await issuePairingCode(req.session.email)
-      res.json({ ok: true, code })
+      res.json({ ok: true, code, bot: config.mail.telegramBotName || null })
     } catch {
       res.status(500).json({ error: 'Pairing unavailable' })
     }
   })
 
   // Hourly expiry-nudge sweep: fresh single-use links for links dying <24h out.
-  registerSweep('expiry-nudge', 3600000, async () => {
-    const leads = await findExpiringLeads(24)
+  registerSweep('expiry-nudge', 3600000, async () => {    const leads = await findExpiringLeads(24)
     for (const lead of leads.slice(0, 20)) {
       try {
         const token = generateAccessToken()
@@ -467,6 +497,31 @@ export function createApp() {
       } catch (e) {
         console.warn('[sweep:nudge] failed for lead:', lead.id, e.message)
       }
+    }
+  })
+
+  // Daily owner digest: counts by status so deliverability gets watched
+  // without anyone polling the admin API.
+  registerSweep('daily-digest', 24 * 3600 * 1000, async () => {
+    try {
+      const counts = await countByStatus()
+      const date = new Date().toISOString().slice(0, 10)
+      enqueue({
+        type: 'digest', to: config.contactEmail,
+        payload: { name: 'Owner', date, counts, lang: 'en' },
+        dedupeKey: `digest:${date}`,
+      })
+    } catch (e) {
+      console.warn('[sweep:digest] failed:', e.message)
+    }
+  })
+
+  // Daily hygiene: prune TTL maps (queue) so single-process memory is bounded.
+  registerSweep('prune-stale', 24 * 3600 * 1000, async () => {
+    try {
+      pruneStale()
+    } catch (e) {
+      console.warn('[sweep:prune] failed:', e.message)
     }
   })
 
@@ -510,15 +565,18 @@ async function grantAndSend({ name, email, lang = 'en' }) {
   const payload = { name, accessUrl, ttl, lang }
   try {
     const r = await trySendNow({ id: `direct-${token.slice(0, 8)}`, type: 'access', to: email, payload, attempts: 0 })
-    const sent = r.provider !== 'filelog'
-    if (!sent) {
-      enqueue({ type: 'access', to: email, payload, dedupeKey: `invite:${email.toLowerCase()}:${new Date().toISOString().slice(0, 10)}` })
+    // filelog "success" means durably logged, not emailed: surface the link,
+    // do NOT enqueue a duplicate that would only re-log the same content.
+    if (r.provider === 'filelog') {
+      return { accessUrl, emailSent: false, queued: false, provider: 'filelog', error: 'no configured sender delivered (dev/file fallback shown)' }
     }
-    return { accessUrl, emailSent: sent, queued: !sent, provider: r.provider, error: sent ? null : 'no configured sender delivered (dev/file fallback shown)' }
+    return { accessUrl, emailSent: true, provider: r.provider, queued: false, error: null }
   } catch (e) {
     let queued = false
     try {
-      enqueue({ type: 'access', to: email, payload, dedupeKey: `invite:${email.toLowerCase()}:${new Date().toISOString().slice(0, 10)}` })
+      // Token-scoped dedupe: retries of THIS link only, never a second
+      // distinct job for the same address that could double-send.
+      enqueue({ type: 'access', to: email, payload, dedupeKey: `invite:${email.toLowerCase()}:${token.slice(0, 8)}` })
       queued = true
     } catch (qe) {
       console.warn('[queue] enqueue failed:', qe.message)

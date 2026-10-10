@@ -137,7 +137,6 @@ function paragraph(text, opts = {}) {
 export function markdownToDocx(markdownOrNull) {
   const raw = String(markdownOrNull || '').trim().slice(0, MAX_MARKDOWN)
   const children = []
-  let consecutiveBlank = 0
   let inFence = false
   let tableBuf = []
 
@@ -165,7 +164,6 @@ export function markdownToDocx(markdownOrNull) {
     const t = line.trim()
 
     if (!t) {
-      consecutiveBlank += 1
       continue
     }
 

@@ -7,37 +7,24 @@
  * Pairings persist to a tmpdir JSON file (best effort — Render disks are
  * ephemeral; re-pairing after a restart is a supported flow, not an error).
  */
-import { readFile, writeFile, mkdir } from 'fs/promises'
-import { tmpdir } from 'os'
-import { join } from 'path'
 import crypto from 'crypto'
+import { pairGet, pairSet, pairDelByChatId, pairFindByChatId } from './db.js'
+import { config } from './config.js'
 
-const storeFile = () => process.env.TG_STORE || join(tmpdir(), 'themis-telegram.json')
-
-let pairs = new Map() // email -> { chatId, lang, pairedAt }
+// Pairing codes stay in memory (15-minute TTL, pruned on issue + hourly).
+// Pairings themselves live in Postgres (or the memory store in dev) so a
+// restart no longer silently unpairs every beta lead.
 let codes = new Map() // code -> { email, exp }
-let loaded = false
 
-async function load() {
-  if (loaded) return
-  loaded = true
-  try {
-    const raw = JSON.parse(await readFile(storeFile(), 'utf8'))
-    pairs = new Map(Object.entries(raw.pairs || {}))
-  } catch { /* first boot — empty store */ }
-}
-
-async function save() {
-  try {
-    await mkdir(tmpdir(), { recursive: true })
-    await writeFile(storeFile(), JSON.stringify({ pairs: Object.fromEntries(pairs) }))
-  } catch (e) {
-    console.warn('[telegram] store save failed:', e.message)
+export function pruneCodes() {
+  const now = Date.now()
+  for (const [code, c] of codes) {
+    if (c.exp < now) codes.delete(code)
   }
 }
 
-const botToken = () => process.env.TELEGRAM_BOT_TOKEN || ''
-export const telegramEnabled = () => Boolean(botToken()) && process.env.TELEGRAM_ENABLED !== 'false'
+const botToken = () => config.mail.telegramToken
+export const telegramEnabled = () => Boolean(botToken()) && config.mail.telegramEnabled
 
 async function api(method, body) {
   const res = await fetch(`https://api.telegram.org/bot${botToken()}/${method}`, {
@@ -60,20 +47,20 @@ const STR = {
   help: { en: 'Commands: /start <code> pair · /status · /revoke unlink · /bahasa · /english', ms: 'Arahan: /start <kod> padan · /status · /revoke nyahlank · /bahasa · /english' },
 }
 
-const langOf = (chatId) => {
-  for (const [, p] of pairs) if (String(p.chatId) === String(chatId)) return p.lang || 'en'
-  return 'en'
+const langOf = async (chatId) => {
+  const found = await pairFindByChatId(chatId).catch(() => null)
+  return found?.lang || 'en'
 }
 
 export async function issuePairingCode(email) {
-  await load()
+  pruneCodes()
   const code = crypto.randomBytes(4).toString('hex').toUpperCase()
   codes.set(code, { email: String(email).toLowerCase(), exp: Date.now() + 15 * 60 * 1000 })
   return code
 }
 
-export function pairedChat(email) {
-  const p = pairs.get(String(email).toLowerCase())
+export async function pairedChat(email) {
+  const p = await pairGet(email).catch(() => null)
   return p ? { chatId: p.chatId, lang: p.lang || 'en' } : null
 }
 
@@ -88,7 +75,7 @@ export async function sendTelegram(chatId, text) {
 }
 
 async function reply(chatId, key) {
-  const lang = langOf(chatId)
+  const lang = await langOf(chatId)
   await sendTelegram(chatId, STR[key][lang] || STR[key].en)
 }
 
@@ -110,26 +97,21 @@ async function poll() {
             await reply(chatId, 'badCode')
           } else {
             codes.delete(String(arg).toUpperCase())
-            pairs.set(c.email, { chatId, lang: langOf(chatId) === 'ms' ? 'ms' : 'en', pairedAt: new Date().toISOString() })
-            await save()
+            pruneCodes()
+            const prev = await langOf(chatId)
+            await pairSet(c.email, chatId, prev)
             await reply(chatId, 'paired')
           }
         } else if (cmd === '/status') {
-          let mine = false
-          for (const [, p] of pairs) if (String(p.chatId) === String(chatId)) mine = true
+          const mine = await pairFindByChatId(chatId).catch(() => null)
           await reply(chatId, mine ? 'statusOn' : 'statusOff')
         } else if (cmd === '/revoke') {
-          for (const [email, p] of pairs) {
-            if (String(p.chatId) === String(chatId)) pairs.delete(email)
-          }
-          await save()
+          await pairDelByChatId(chatId).catch(() => {})
           await reply(chatId, 'unlinked')
         } else if (cmd === '/bahasa' || cmd === '/english') {
           const lang = cmd === '/bahasa' ? 'ms' : 'en'
-          for (const [email, p] of pairs) {
-            if (String(p.chatId) === String(chatId)) pairs.set(email, { ...p, lang })
-          }
-          await save()
+          const found = await pairFindByChatId(chatId).catch(() => null)
+          if (found) await pairSet(found.email, chatId, lang).catch(() => {})
           await reply(chatId, 'paired')
         } else if (cmd === '/help' || cmd === '/start') {
           await reply(chatId, String(arg || '') ? 'badCode' : 'needCode')
@@ -148,8 +130,6 @@ export function startTelegramPoll({ everyMs = 25000 } = {}) {
     console.warn('[telegram] disabled — set TELEGRAM_BOT_TOKEN to enable the channel')
     return
   }
-  load().then(() => {
-    const t = setInterval(poll, everyMs)
-    t.unref?.()
-  })
+  const t = setInterval(poll, everyMs)
+  t.unref?.()
 }
