@@ -1,0 +1,167 @@
+import React, { useRef, useState } from 'react'
+import {
+  Sparkles, ArrowRight, Loader2, CheckCircle2, AlertTriangle,
+  ChevronDown, FileText, Eye, EyeOff,
+} from 'lucide-react'
+import { askPolicy } from '../lib/ai'
+
+const CONF = {
+  high: { cls: 'lifecycle-approved', label: 'High' },
+  medium: { cls: 'lifecycle-reviewing', label: 'Medium' },
+  low: { cls: 'lifecycle-new', label: 'Low' },
+}
+
+/**
+ * Grounded policy Q&A — ask a question about the uploaded policy and get an
+ * answer with verbatim citations from that policy text (not general knowledge).
+ * Requires a policy to have been parsed in this session.
+ */
+export default function AskPanel({ policyText }) {
+  const [input, setInput] = useState('')
+  const [thread, setThread] = useState([]) // { q, r } where r = { answer, grounded, citations, confidence }
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [openCitations, setOpenCitations] = useState({})
+  const scrollRef = useRef(null)
+
+  const canAsk = Boolean(policyText && policyText.trim())
+
+  const submit = async (e) => {
+    e.preventDefault()
+    const q = input.trim()
+    if (!q || busy) return
+    if (!canAsk) {
+      setError('Attach a policy document first — grounded answers are built from your policy text.')
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      const r = await askPolicy(policyText, q, thread.slice(-4))
+      setThread(t => [...t, { q, r }])
+      setInput('')
+      setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 60)
+    } catch (err) {
+      console.error('[ask]', err)
+      setError(err.message || 'Ask failed — try again')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const toggleCitations = (idx) =>
+    setOpenCitations(o => ({ ...o, [idx]: !o[idx] }))
+
+  return (
+    <div className="surface fade-in mt-6 overflow-hidden" style={{ animationDelay: '380ms' }}>
+      <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-5 py-4">
+        <div className="flex items-center gap-2">
+          <FileText size={16} className="text-[var(--grape)]" />
+          <span className="text-sm font-semibold">Ask your policy</span>
+          <span className="hidden rounded-full bg-[var(--bg-2)] px-2 py-0.5 text-[10px] font-medium text-[var(--muted)] sm:inline">
+            grounded answers with citations
+          </span>
+        </div>
+        {canAsk ? (
+          <span className="badge lifecycle-approved">
+            <CheckCircle2 size={11} /> Policy loaded
+          </span>
+        ) : (
+          <span className="badge lifecycle-new">
+            <AlertTriangle size={11} /> Policy required
+          </span>
+        )}
+      </div>
+
+      <div className="p-5">
+        {thread.length === 0 && (
+          <div className="rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-4 py-4 text-sm leading-relaxed text-[var(--muted)]">
+            Ask a question about the policy — e.g. <span className="text-[var(--fg)]">"Is hail damage covered?"</span> or{' '}
+            <span className="text-[var(--fg)]">"What's the deductible for wind?"</span>. Answers quote the exact policy
+            language they're based on so nothing is taken on general knowledge.
+          </div>
+        )}
+
+        {thread.map((turn, i) => {
+          const conf = CONF[turn.r?.confidence] || CONF.low
+          const cites = turn.r?.citations || []
+          const showCites = Boolean(openCitations[i])
+          return (
+            <div key={i} className="mt-4 first:mt-0">
+              <div className="max-w-[85%] rounded-2xl rounded-br-sm border border-[var(--line)] bg-[var(--bg-2)] px-4 py-2.5 text-sm text-[var(--fg)]">
+                {turn.q}
+              </div>
+              <div className="mt-2 max-w-[95%] rounded-2xl rounded-bl-sm border border-[var(--line)] bg-[var(--bg)] px-4 py-3 text-sm leading-relaxed text-[var(--muted)]">
+                <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                  {turn.r?.grounded ? (
+                    <span className="badge lifecycle-approved"><CheckCircle2 size={11} /> Grounded</span>
+                  ) : (
+                    <span className="badge lifecycle-new"><AlertTriangle size={11} /> Not found in policy</span>
+                  )}
+                  <span className={`badge ${conf.cls}`}>Confidence {conf.label}</span>
+                </div>
+                <div className="whitespace-pre-line">{turn.r?.answer || 'No answer received.'}</div>
+
+                {cites.length > 0 && (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleCitations(i)}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-[var(--accent)] transition hover:opacity-80"
+                      aria-expanded={showCites}
+                    >
+                      {showCites ? <EyeOff size={12} /> : <Eye size={12} />}
+                      {showCites ? 'Hide' : 'Show'} {cites.length} citation{cites.length > 1 ? 's' : ''}
+                      <ChevronDown size={12} className={`transition ${showCites ? 'rotate-180' : ''}`} />
+                    </button>
+                    {showCites && (
+                      <div className="mt-2 space-y-2">
+                        {cites.map((c, j) => (
+                          <blockquote key={j} className="rounded-lg border-l-2 border-[var(--grape)] bg-[var(--bg-2)] px-3 py-2 text-xs leading-relaxed text-[var(--muted)]">
+                            <div className="text-[var(--fg)]">"{c.quote}"</div>
+                            {c.note && <div className="mt-1 text-[11px] text-[var(--muted)] opacity-80">{c.note}</div>}
+                          </blockquote>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })}
+
+        {error && (
+          <div className="mt-4 rounded-xl border border-[var(--rose)]/40 bg-[var(--rose)]/10 px-4 py-3 text-sm text-[var(--rose)]">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={submit} className="mt-4 flex items-center gap-2">
+          <input
+            type="text"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder={canAsk ? 'Ask about the policy…' : 'Attach a policy to enable questions'}
+            maxLength={1200}
+            disabled={busy}
+            className="input flex-1"
+            aria-label="Ask a policy question"
+          />
+          <button
+            type="submit"
+            disabled={busy || !input.trim()}
+            className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-[var(--grape)] to-[var(--accent)] text-[#0b0d17] shadow-lg shadow-[var(--grape)]/20 transition enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Ask"
+          >
+            {busy ? <Loader2 size={16} className="animate-spin" /> : input.trim() ? <ArrowRight size={16} /> : <Sparkles size={16} />}
+          </button>
+        </form>
+        <p className="mt-2 text-[11px] text-[var(--muted)]">
+          Answers are grounded in the policy text you uploaded this session. Verify page references before relying on them.
+        </p>
+      </div>
+      <div ref={scrollRef} />
+    </div>
+  )
+}
