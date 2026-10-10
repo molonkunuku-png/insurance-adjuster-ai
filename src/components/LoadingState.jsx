@@ -1,18 +1,19 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import Mascot from './Mascot'
-import { useI18n } from '../i18n'
+import { useI18n, useFormat } from '../i18n'
 
 function LoadingState({ onCancel }) {
   const { t } = useI18n()
+  const { num } = useFormat()
   const [startedAt] = useState(() => Date.now())
   const [now, setNow] = useState(startedAt)
-  const STEPS = [
+  const STEPS = useMemo(() => [
     t('loading.s1', 'Reading policy document…'),
     t('loading.s2', 'Analyzing damage photos…'),
     t('loading.s3', 'Cross-referencing coverage…'),
     t('loading.s4', 'Estimating repair value…'),
     t('loading.s5', 'Drafting findings…'),
-  ]
+  ], [t])
   const [active, setActive] = useState(0)
 
   useEffect(() => {
@@ -31,7 +32,7 @@ function LoadingState({ onCancel }) {
 
       <h2 className="mt-6 text-lg font-semibold">{t('loading.heading', 'Assessing your claim')}</h2>
       <p className="mt-1 text-sm text-[var(--muted)]">{STEPS[active]}</p>
-      <p className="tnum mt-1 text-xs text-[var(--muted)]">{Math.floor((now - startedAt) / 1000)}s {t('loading.elapsed', 'elapsed')}</p>
+      <p className="tnum mt-1 text-xs text-[var(--muted)]">{num(Math.floor((now - startedAt) / 1000))} {t('loading.sec', 'sec')} {t('loading.elapsed', 'elapsed')}</p>
 
       {onCancel && (
         <button

@@ -77,8 +77,10 @@ body.light-theme {
   --panel: #ffffff;
   --line: #e2e6f0;
   --fg: #131629;
+  /* --muted is secondary text only (6.1:1); body copy uses --fg */
   --muted: #5b6178;
-  --accent: #0fb89a;
+  /* --accent darkened for AA body-text contrast on white (was #0fb89a ≈2.5:1) */
+  --accent: #0b8a73;
   --accent-soft: rgba(15, 184, 154, 0.10);
   --grape: #6d5ce0;
   --grape-soft: rgba(109, 92, 224, 0.10);
@@ -117,7 +119,8 @@ body.dim-theme {
   --panel: #0d0d16;
   --line: #1c1c2b;
   --fg: #e6e8f2;
-  --muted: #8b90a8;
+  /* 7:1+ body-text contrast on pure black (was #8b90a8 ≈6.6:1) */
+  --muted: #9aa0bd;
   --accent: #12d9b0;
   --accent-soft: rgba(18, 217, 176, 0.10);
   --grape: #7c6cf6;
@@ -392,11 +395,34 @@ body::after {
 .ask-answer strong { color: var(--fg); }
 .ask-answer code { background: var(--bg-2); padding: 0.15em 0.4em; border-radius: 6px; font-family: "JetBrains Mono", monospace; font-size: 0.9em; }
 
+@page {
+  margin: 18mm 15mm;
+}
+
+.print-only { display: none; }
+
 @media print {
   body::before, body::after, .beam::before { display: none !important; }
   body { background: #fff; color: #000; }
+  /* Force ink-on-paper: theme vars would otherwise print muted-on-white. */
+  :root {
+    --fg: #000;
+    --muted: #333;
+    --bg: #fff;
+    --bg-2: #fff;
+    --panel: #fff;
+    --accent-soft: transparent;
+    --grape-soft: transparent;
+    --warn-soft: transparent;
+    --danger-soft: transparent;
+    --info-soft: transparent;
+    --success-soft: transparent;
+  }
   .surface { box-shadow: none; border-color: #ccc; backdrop-filter: none; }
   [data-print-hide] { display: none !important; }
+  .print-only { display: block !important; }
+  .prose-report { max-height: none; overflow: visible; }
+  .peril-dot { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }
 
 /* No cursor spotlight on touch devices: no cursor, wasted battery */

@@ -14,9 +14,9 @@ import { useI18n } from '../i18n'
 export default function AskPanel({ policyText }) {
   const { t } = useI18n()
   const CONF = {
-    high: { cls: 'lifecycle-approved', label: t('result.confHigh', 'High') },
-    medium: { cls: 'lifecycle-reviewing', label: t('result.confMed', 'Medium') },
-    low: { cls: 'lifecycle-new', label: t('result.confLow', 'Low') },
+    high: { cls: 'lifecycle-approved', label: t('ask.confH', 'High') },
+    medium: { cls: 'lifecycle-reviewing', label: t('ask.confM', 'Medium') },
+    low: { cls: 'lifecycle-new', label: t('ask.confL', 'Low') },
   }
   const [input, setInput] = useState('')
   const [thread, setThread] = useState([]) // { q, r } where r = { answer, grounded, citations, confidence }
@@ -55,7 +55,7 @@ export default function AskPanel({ policyText }) {
     setOpenCitations(o => ({ ...o, [idx]: !o[idx] }))
 
   return (
-    <div className="surface fade-in mt-6 overflow-hidden" style={{ animationDelay: '380ms' }}>
+    <div className="surface fade-in mt-6 overflow-hidden" style={{ animationDelay: '240ms' }}>
       <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-5 py-4">
         <div className="flex items-center gap-2">
           <FileText size={16} className="text-[var(--grape)]" />
@@ -78,8 +78,8 @@ export default function AskPanel({ policyText }) {
       <div className="p-5">
         {thread.length === 0 && (
           <div className="rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-4 py-4 text-sm leading-relaxed text-[var(--muted)]">
-            {t('ask.emptyA', 'Ask a question about the policy — e.g.')} <span className="text-[var(--fg)]">"Is hail damage covered?"</span> or{' '}
-            <span className="text-[var(--fg)]">"What's the deductible for wind?"</span>. {t('ask.emptyB', "Answers quote the exact policy language they're based on so nothing is taken on general knowledge.")}
+            {t('ask.emptyA', 'Ask a question about the policy — e.g.')} <span className="text-[var(--fg)]">"{t('ask.ex1', 'Is hail damage covered?')}"</span> or{' '}
+            <span className="text-[var(--fg)]">"{t('ask.ex2', "What's the deductible for wind?")}"</span>. {t('ask.emptyB', "Answers quote the exact policy language they're based on so nothing is taken on general knowledge.")}
           </div>
         )}
 
@@ -138,7 +138,8 @@ export default function AskPanel({ policyText }) {
           </div>
         )}
 
-        <form onSubmit={submit} className="mt-4 flex items-center gap-2">
+        <form onSubmit={submit} className="mt-4 flex items-center gap-2" data-print-hide>
+          <div className="flex-1">
           <input
             type="text"
             value={input}
@@ -149,6 +150,8 @@ export default function AskPanel({ policyText }) {
             className="input flex-1"
             aria-label={t('ask.ariaAsk', 'Ask a policy question')}
           />
+          <div className="tnum mt-1 text-right text-[10px] text-[var(--muted)]">{input.length}/1200</div>
+          </div>
           <button
             type="submit"
             disabled={busy || !input.trim()}

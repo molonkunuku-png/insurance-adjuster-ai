@@ -70,6 +70,7 @@ export default function SignInForm({ onRequestAccess }) {
         <input
           required
           type="email"
+          autoComplete="email"
           value={email}
           onChange={e => setEmail(e.target.value)}
           placeholder={t('signin.emailPh', 'the email you signed up with')}

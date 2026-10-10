@@ -2,9 +2,15 @@ import React, { useState } from 'react'
 import { apiPost } from '../lib/api'
 import { useI18n } from '../i18n'
 
-const ROLES = ['Independent (IA)', 'Staff adjuster', 'CAT adjuster', 'Desk adjuster', 'Other']
+const ROLES = [
+  { value: 'Independent (IA)', key: 'role.ia' },
+  { value: 'Staff adjuster', key: 'role.staff' },
+  { value: 'CAT adjuster', key: 'role.cat' },
+  { value: 'Desk adjuster', key: 'role.desk' },
+  { value: 'Other', key: 'role.other' },
+]
 
-export default function BetaForm({ compact = false }) {
+export default function BetaForm() {
   const { t } = useI18n()
   const [form, setForm] = useState({ name: '', email: '', role: ROLES[0], claims: '' })
   const [status, setStatus] = useState('idle') // idle | sending | done | error
@@ -32,6 +38,7 @@ export default function BetaForm({ compact = false }) {
 
   const resend = async () => {
     setResent(false)
+    setError('')
     try {
       const res = await apiPost('/api/beta/resend', { email: form.email })
       if (res.accessUrl) setAccessUrl(res.accessUrl)
@@ -45,7 +52,7 @@ export default function BetaForm({ compact = false }) {
     const waitlist = !granted
     const emailBlocked = granted && accessUrl
     return (
-      <div className={compact ? 'text-center' : 'py-4 text-center'}>
+      <div className="py-4 text-center">
         <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[var(--accent-soft)] text-[var(--accent)]">
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
             <path d="M20 6L9 17l-5-5" />
@@ -85,12 +92,17 @@ export default function BetaForm({ compact = false }) {
         )}
 
         {!emailBlocked && (
-          <button
-            onClick={resend}
-            className="mt-4 text-xs text-[var(--muted)] underline transition hover:text-[var(--accent)]"
-          >
-            {resent ? t('beta.resent', 'Access link resent ✓') : t('beta.resend', "Didn't get it? Resend")}
-          </button>
+          <>
+            <button
+              onClick={resend}
+              className="mt-4 text-xs text-[var(--muted)] underline transition hover:text-[var(--accent)]"
+            >
+              {resent ? t('beta.resent', 'Access link resent ✓') : t('beta.resend', "Didn't get it? Resend")}
+            </button>
+            {error && (
+              <p className="mt-2 text-xs text-[var(--rose)]">{error}</p>
+            )}
+          </>
         )}
       </div>
     )
@@ -98,33 +110,29 @@ export default function BetaForm({ compact = false }) {
 
   return (
     <>
-      {!compact && (
-        <>
-          <span className="inline-flex items-center gap-2 rounded-full bg-[var(--accent-soft)] px-3 py-1 text-[11px] font-medium text-[var(--accent)]">
-            {t('beta.badge', 'Free beta · limited spots')}
-          </span>
-          <h3 className="mt-3 text-xl font-bold tracking-tight">{t('beta.title', 'Become a beta tester')}</h3>
-          <p className="mt-1 text-sm text-[var(--muted)]">
-            {t('beta.sub', 'Get free access in exchange for honest feedback. Takes 20 seconds.')}
-          </p>
-        </>
-      )}
+      <span className="inline-flex items-center gap-2 rounded-full bg-[var(--accent-soft)] px-3 py-1 text-[11px] font-medium text-[var(--accent)]">
+        {t('beta.badge', 'Free beta · limited spots')}
+      </span>
+      <h3 className="mt-3 text-xl font-bold tracking-tight">{t('beta.title', 'Become a beta tester')}</h3>
+      <p className="mt-1 text-sm text-[var(--muted)]">
+        {t('beta.sub', 'Get free access in exchange for honest feedback. Takes 20 seconds.')}
+      </p>
 
       <form onSubmit={submit} className="mt-5 space-y-3">
         <Field label={t('beta.name', 'Name')}>
-          <input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder={t('beta.namePh', 'Jane Adjuster')} className="input" />
+          <input required autoComplete="name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder={t('beta.namePh', 'Jane Adjuster')} className="input" />
         </Field>
         <Field label={t('beta.workEmail', 'Work email')}>
-          <input required type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder={t('beta.emailPh', 'jane@claimsco.com')} className="input" />
+          <input required autoComplete="email" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder={t('beta.emailPh', 'jane@claimsco.com')} className="input" />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label={t('beta.role', 'Role')}>
             <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} className="input">
-              {ROLES.map(r => <option key={r}>{r}</option>)}
+              {ROLES.map(r => <option key={r.value} value={r.value}>{t(r.key, r.value)}</option>)}
             </select>
           </Field>
           <Field label={t('beta.claims', 'Claims handled / month')}>
-            <input value={form.claims} onChange={e => setForm({ ...form, claims: e.target.value })} placeholder={t('beta.claimsPh', 'how many you handle, e.g. 40')} className="input" />
+            <input inputMode="numeric" value={form.claims} onChange={e => setForm({ ...form, claims: e.target.value })} placeholder={t('beta.claimsPh', 'how many you handle, e.g. 40')} className="input" />
           </Field>
         </div>
 

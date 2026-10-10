@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useEffect, useRef } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { FileText, Download, Code2, Eye, Sparkles, RefreshCw, Printer, FileDown, PenLine, CheckCircle2 } from 'lucide-react'
@@ -7,7 +7,7 @@ import { exportDocx } from '../lib/ai'
 import { useI18n, useFormat } from '../i18n'
 
 function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMarkdownUpdate }) {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const { dateTime } = useFormat()
   const [showRaw, setShowRaw] = useState(false)
   const [busy, setBusy] = useState(null) // 'docx' | null
@@ -15,6 +15,16 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
   const [signNote, setSignNote] = useState('')
   const [signed, setSigned] = useState(null) // { name, at }
   const markdown = report?.markdown
+
+  // A regenerated draft is unsigned again: the old signature must never ride along.
+  const markdownRef = useRef(markdown)
+  useEffect(() => {
+    if (markdownRef.current !== markdown) {
+      markdownRef.current = markdown
+      setSigned(null)
+      setSignNote('')
+    }
+  }, [markdown])
 
   const download = () => {
     const blob = new Blob([markdown || ''], { type: 'text/markdown' })
@@ -26,10 +36,18 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
     URL.revokeObjectURL(url)
   }
 
+  // Signer input is interpolated into markdown: strip formatting characters
+  // so a name can never become a heading, link, or code span in the export.
+  const cleanInline = (s) => String(s || '').replace(/[#_*`[\]\\]/g, '').slice(0, 120)
+  const cleanNote = (s) => String(s || '')
+    .split('\n')
+    .map(line => line.replace(/^(\s*#{1,6}\s*)/, '$1\u200b').replace(/`/g, "'"))
+    .join('\n')
+    .slice(0, 2000)
   const signDraft = () => {
     if (!markdown || !signName.trim()) return
     const at = new Date().toISOString()
-    const block = `\n\n## Adjuster sign-off\n${signNote.trim()}\n\nSigned by ${signName.trim()} · ${at}\n`
+    const block = `\n\n## ${t('sign.blockTitle', 'Adjuster sign-off')}\n${cleanNote(signNote)}\n\n${t('sign.by', 'Signed by')} ${cleanInline(signName)} · ${at}\n`
     onMarkdownUpdate?.((markdown || '') + block)
     setSigned({ name: signName.trim(), at: Date.now() })
     setSignNote('')
@@ -39,7 +57,7 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
   const downloadDocx = async () => {
     setBusy('docx')
     try {
-      const blob = await exportDocx({ markdown: report?.markdown, analysis: report?.analysis })
+      const blob = await exportDocx({ markdown: report?.markdown, analysis: report?.analysis, lang })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -69,7 +87,7 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
 
   return (
     <div className="mt-6">
-      <div className="surface fade-in overflow-hidden" style={{ animationDelay: '320ms' }}>
+      <div className="surface fade-in overflow-hidden" style={{ animationDelay: '220ms' }}>
         <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-5 py-4">
           <div className="flex items-center gap-2">
             <FileText size={16} className="text-[var(--accent)]" />
@@ -97,7 +115,7 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
               </button>
               <button
                 onClick={downloadDocx}
-                disabled={busy === 'docx'}
+                disabled={busy === 'docx' || loading}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--accent)] hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy === 'docx' ? <RefreshCw size={12} className="animate-spin" /> : <FileDown size={12} />}
@@ -131,7 +149,7 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
           )}
 
           {markdown && !showRaw && (
-            <div className="prose-report max-h-[32rem] overflow-auto pr-1" dangerouslySetInnerHTML={{ __html: html }} />
+            <div className="prose-report max-h-[32rem] overflow-auto pr-1" lang={lang === 'ms' ? 'en' : undefined} dangerouslySetInnerHTML={{ __html: html }} />
           )}
         </div>
       </div>
@@ -155,18 +173,19 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
       </button>
 
       {markdown && (
-        <div className="surface fade-in mt-4 p-5" data-print-hide>
+        <div className="surface fade-in mt-4 p-5">
           <div className="mb-3 flex items-center gap-2 text-[var(--muted)]">
             <PenLine size={15} />
             <span className="text-[11px] font-semibold uppercase tracking-wider">{t('sign.title', 'Adjuster notes & sign-off')}</span>
             {signed && (
               <span className="badge lifecycle-approved ml-auto">
+                <Mascot size={16} mood="happy" decorative />
                 <CheckCircle2 size={11} /> {t('sign.signed', 'Signed')} · {signed.name} · {dateTime(signed.at)}
               </span>
             )}
           </div>
           {!signed && (
-            <div className="space-y-2.5">
+            <div className="space-y-2.5" data-print-hide>
               <textarea
                 value={signNote}
                 onChange={e => setSignNote(e.target.value)}
@@ -175,12 +194,15 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
                 placeholder={t('sign.notesPh', 'Adjuster comments on the draft…')}
                 className="w-full resize-y rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-3 py-2 text-sm text-[var(--fg)] outline-none transition placeholder:text-[var(--muted)]/60 focus:border-[var(--accent)]"
               />
+              <div className="tnum text-right text-[10px] text-[var(--muted)]">{signNote.length}/2000</div>
               <div className="flex gap-2">
                 <input
                   value={signName}
                   onChange={e => setSignName(e.target.value)}
                   placeholder={t('sign.name', 'Your name')}
+                  aria-label={t('sign.name', 'Your name')}
                   maxLength={120}
+                  autoComplete="name"
                   className="input flex-1"
                 />
                 <button

@@ -10,6 +10,8 @@ function Tab({ active, onClick, children }) {
   return (
     <button
       type="button"
+      role="tab"
+      aria-selected={active}
       onClick={onClick}
       className={`rounded-lg px-3 py-2 text-[13px] font-medium transition ${
         active ? 'bg-[var(--bg)] text-[var(--fg)] shadow-sm' : 'text-[var(--muted)] hover:text-[var(--fg)]'
@@ -44,13 +46,13 @@ export default function GateView({ accessStatus, mode = 'signup', onModeChange }
       </p>
 
       {msgKey && (
-        <div className="mt-5 rounded-xl border border-[var(--rose)]/40 bg-[var(--rose)]/10 px-4 py-3 text-sm text-[var(--rose)]">
+        <div role="alert" className="mt-5 rounded-xl border border-[var(--rose)]/40 bg-[var(--rose)]/10 px-4 py-3 text-sm text-[var(--rose)]">
           {t(msgKey)}
         </div>
       )}
 
       <div className="surface mt-6 p-6 text-left">
-        <div className="mb-5 grid grid-cols-2 gap-1 rounded-xl bg-[var(--bg-2)] p-1">
+        <div role="tablist" aria-label={t('gate.title', 'Beta access required')} className="mb-5 grid grid-cols-2 gap-1 rounded-xl bg-[var(--bg-2)] p-1">
           <Tab active={!signin} onClick={() => onModeChange?.('signup')}>{t('gate.tabSignup', 'Request access')}</Tab>
           <Tab active={signin} onClick={() => onModeChange?.('signin')}>{t('gate.tabSignin', 'Sign in')}</Tab>
         </div>

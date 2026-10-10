@@ -3,7 +3,7 @@ import {
   ShieldCheck, Zap, ScanText, Calculator, FileText, Sun, Moon, MoonStar,
   Contrast, LogOut, ChevronDown, ScanEye, DollarSign, ListChecks,
   AlertTriangle, CheckCircle2, Clock, Lock, EyeOff, History, Flame,
-  Wind, CloudHail, Waves, Droplet, Mountain, Sparkles,
+  Wind, CloudHail, Waves, Droplet, Mountain, Sparkles, X, ShieldAlert, Snowflake,
 } from 'lucide-react'
 import FileUpload from './components/FileUpload'
 import ReportPreview from './components/ReportPreview'
@@ -41,18 +41,30 @@ function ThemeToggle({ theme, onSelect }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
+  const btnRef = useRef(null)
   const current = THEMES.find(t => t.id === theme) || THEMES[0]
 
   useEffect(() => {
     if (!open) return
     const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        setOpen(false)
+        btnRef.current?.focus()
+      }
+    }
     document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [open])
 
   return (
     <div className="relative" ref={ref}>
       <button
+        ref={btnRef}
         onClick={() => setOpen(o => !o)}
         aria-label={t('header.themeLabel', 'Change theme')}
         aria-haspopup="menu"
@@ -145,10 +157,11 @@ function StatCard({ label, value, tint, Icon, delay }) {
 }
 
 function Splash() {
+  const { t } = useI18n()
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-center">
       <Mascot size={84} mood="idle" decorative />
-      <p className="text-sm text-[var(--muted)]">Loading…</p>
+      <p className="text-sm text-[var(--muted)]">{t('common.loading', 'Loading…')}</p>
     </div>
   )
 }
@@ -170,6 +183,7 @@ function App() {
   const [email, setEmail] = useState(null)
   const [accessStatus, setAccessStatus] = useState(null)
   const [gateMode, setGateMode] = useState('signup') // signup | signin
+  const [appError, setAppError] = useState('')
   // Claim timeline (idea 0048+0055): local { ev, at } events for the audit log.
   const [events, setEvents] = useState([])
   // Draft snapshot for cancel-restore + continue-last-claim (ideas #4, 0036).
@@ -186,11 +200,16 @@ function App() {
     } catch { return null }
   })
   const [uploadKey, setUploadKey] = useState(0)
+  const [armDiscard, setArmDiscard] = useState(false)
   const abortRef = useRef(null)
 
   const logEvent = (ev) => setEvents(prev => [...prev, { ev, at: Date.now() }])
 
+  const lastSnapJson = useRef('')
   const persistSnap = (s) => {
+    const content = JSON.stringify({ n: s.notes, p: s.policy, d: s.damageImages })
+    if (content === lastSnapJson.current) return
+    lastSnapJson.current = content
     const stamped = { ...s, at: Date.now() }
     setSnap(stamped)
     try {
@@ -219,9 +238,10 @@ function App() {
     localStorage.setItem('themis-theme', theme)
   }, [theme])
 
-  // Cursor spotlight
+  // Cursor spotlight — mouse pointers with motion allowed only.
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    if (window.matchMedia('(pointer: coarse)').matches) return
     const onMove = (e) => {
       const root = document.documentElement
       root.style.setProperty('--mx', `${(e.clientX / window.innerWidth) * 100}%`)
@@ -265,6 +285,7 @@ function App() {
   const handleUpload = async ({ getImagesForAI, getPdfText, getNotes }) => {
     setStep('analyzing')
     setLoading(true)
+    setAppError('')
     logEvent('started')
     const controller = new AbortController()
     abortRef.current = controller
@@ -273,7 +294,7 @@ function App() {
       const pdfText = getPdfText()
       const notes = getNotes()
       if (images.length === 0 && !notes.trim()) {
-        alert(t('error.needInput', 'Add at least one damage photo or a short description of the damage'))
+        setAppError(t('error.needInput', 'Add at least one damage photo or a short description of the damage'))
         setStep('upload')
         return
       }
@@ -290,7 +311,7 @@ function App() {
         return
       }
       console.error(e)
-      alert(e.message || t('error.analysisFailed', 'AI analysis failed'))
+      setAppError(e.message || t('error.analysisFailed', 'AI analysis failed'))
       setStep('upload')
     } finally {
       setLoading(false)
@@ -315,13 +336,14 @@ function App() {
   const handleGenerate = async () => {
     if (!report?.analysis) return
     setLoading(true)
+    setAppError('')
     try {
       const markdown = await generateReport(report.analysis)
       setReport(r => ({ ...r, markdown }))
       logEvent('report')
     } catch (e) {
       console.error(e)
-      alert(e.message || t('error.reportFailed', 'Report generation failed'))
+      setAppError(e.message || t('error.reportFailed', 'Report generation failed'))
     } finally {
       setLoading(false)
     }
@@ -352,6 +374,14 @@ function App() {
 
       <main className="mx-auto max-w-5xl px-5 pb-24 pt-12">
         {auth === 'loading' && <Splash />}
+        {appError && auth === 'in' && (
+          <div role="alert" className="fade-in mb-6 flex items-start justify-between gap-3 rounded-2xl border border-[var(--danger)]/40 bg-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)]">
+            <span>{appError}</span>
+            <button onClick={() => setAppError('')} aria-label={t('common.dismiss', 'Dismiss')} className="grid h-6 w-6 flex-shrink-0 place-items-center rounded-lg transition hover:bg-[var(--danger)]/15">
+              <X size={14} />
+            </button>
+          </div>
+        )}
         {auth === 'out' && <GateView accessStatus={accessStatus} mode={gateMode} onModeChange={setGateMode} />}
         {auth === 'in' && (
           <>
@@ -362,15 +392,24 @@ function App() {
                 snap={snap}
                 uploadKey={uploadKey}
                 onSnap={handleSnap}
+                onPolicyEvent={(ev) => logEvent(ev)}
                 resume={pendingResume && snapIsEmpty(snap) ? pendingResume : null}
+                discardArmed={armDiscard}
                 onContinueResume={() => {
                   setSnap(pendingResume ? { ...pendingResume } : null)
                   setPendingResume(null)
+                  setArmDiscard(false)
                   setUploadKey(k => k + 1)
                 }}
                 onDiscardResume={() => {
+                  if (!armDiscard) {
+                    setArmDiscard(true)
+                    setTimeout(() => setArmDiscard(false), 3000)
+                    return
+                  }
                   setPendingResume(null)
                   setSnap(null)
+                  setArmDiscard(false)
                   try { localStorage.removeItem('themis-snap') } catch { /* ignore */ }
                   setUploadKey(k => k + 1)
                 }}
@@ -401,7 +440,7 @@ function App() {
   )
 }
 
-function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, resume, onContinueResume, onDiscardResume, dateTime }) {
+function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, onPolicyEvent, resume, discardArmed, onContinueResume, onDiscardResume, dateTime }) {
   const { t, lang } = useI18n()
   return (
     <div>
@@ -415,7 +454,9 @@ function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, resume, onCon
         </span>
         <h1 className="mt-5 text-4xl font-extrabold leading-[1.1] tracking-tight sm:text-5xl">
           {lang === 'ms' ? (
-            t('hero.title')
+            <span className="bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] bg-clip-text text-transparent">
+              {t('hero.title')}
+            </span>
           ) : (
             <>
               Turn damage photos into an{' '}
@@ -446,7 +487,7 @@ function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, resume, onCon
             </div>
             <div className="flex items-center gap-2">
               <button onClick={onDiscardResume} className="rounded-xl px-3 py-2 text-[13px] text-[var(--muted)] underline transition hover:text-[var(--rose)]">
-                {t('resume.discard', 'Discard')}
+                {discardArmed ? t('common.confirmTap', 'Tap again to confirm') : t('resume.discard', 'Discard')}
               </button>
               <button onClick={onContinueResume} className="rounded-xl bg-[var(--accent)] px-4 py-2 text-[13px] font-semibold text-[#0b0d17] transition hover:brightness-110">
                 {t('resume.continue', 'Continue')}
@@ -454,7 +495,7 @@ function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, resume, onCon
             </div>
           </div>
         )}
-        <FileUpload key={uploadKey} initial={snap} onSnapshot={onSnap} onUpload={onUpload} />
+        <FileUpload key={uploadKey} initial={snap} onSnapshot={onSnap} onPolicyEvent={onPolicyEvent} onUpload={onUpload} />
         <button
           onClick={onSample}
           className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--line)] px-5 py-2.5 text-sm text-[var(--muted)] transition hover:border-[var(--grape)] hover:text-[var(--grape)]"
@@ -468,7 +509,7 @@ function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, resume, onCon
         {FEATURES.map((f, i) => <FeatureCard key={f.tKey} f={f} i={i} />)}
       </div>
 
-      <div className="fade-in mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] px-5 py-4 text-[12px] text-[var(--muted)]" style={{ animationDelay: '360ms' }}>
+      <div className="fade-in mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] px-5 py-4 text-[12px] text-[var(--muted)]" style={{ animationDelay: '240ms' }}>
         <span className="inline-flex items-center gap-2">
           <Lock size={14} className="text-[var(--accent)]" /> {t('trust.1', 'Photos processed in your session only')}
         </span>
@@ -490,6 +531,9 @@ const PERIL_STYLE = {
   fire: { cls: 'peril-fire', Icon: Flame },
   water: { cls: 'peril-water', Icon: Droplet },
   quake: { cls: 'peril-structural', Icon: Mountain },
+  theft: { cls: 'peril-theft', Icon: ShieldAlert },
+  snow: { cls: 'peril-hail', Icon: Snowflake },
+  lightning: { cls: 'peril-structural', Icon: Zap },
 }
 
 function ResultView({ report, loading, onGenerate, onBack, events = [], onExported, onSigned, onMarkdownUpdate }) {
@@ -516,6 +560,10 @@ function ResultView({ report, loading, onGenerate, onBack, events = [], onExport
   }
   return (
     <div>
+      <div className="print-only mb-4 border-b-2 border-black pb-3">
+        <div className="text-lg font-bold">Themis Adjuster AI · {t('report.title', 'Loss report')}</div>
+        <div className="text-xs">{t('report.draft', 'Draft — not the final report')}</div>
+      </div>
       <div className="fade-in flex items-center justify-between" data-print-hide>
         <button
           onClick={onBack}
@@ -558,13 +606,18 @@ function ResultView({ report, loading, onGenerate, onBack, events = [], onExport
           </div>
         )}
         <p className="mt-1 text-sm text-[var(--muted)]">{t('result.summary', 'AI-generated summary from your policy and photos.')}</p>
+        {a.partial && (
+          <p className="mt-2 rounded-xl border border-[var(--warn)]/40 bg-[var(--warn-soft)] px-4 py-2.5 text-[13px] text-[var(--warn)]">
+            {t('result.partial', 'Partial inputs — attach the missing pieces for a complete draft.')}
+          </p>
+        )}
       </div>
 
       <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
         <StatCard label={t('result.coverage', 'Coverage')} value={a.coverage} tint="var(--accent)" Icon={ShieldCheck} delay={100} />
         <StatCard label={t('result.damage', 'Damage')} value={a.damage} tint="var(--grape)" Icon={ScanEye} delay={160} />
         <StatCard label={t('result.value', 'Estimated value')} value={a.estimatedValue} tint="var(--amber)" Icon={DollarSign} delay={220} />
-        <div className="surface fade-in p-5" style={{ animationDelay: '280ms' }}>
+        <div className="surface fade-in p-5" style={{ animationDelay: '200ms' }}>
           <div className="mb-2 flex items-center gap-2 text-[var(--info)]">
             <ListChecks size={15} />
             <span className="text-[11px] font-semibold uppercase tracking-wider">{t('result.next', 'Next steps')}</span>
@@ -580,7 +633,7 @@ function ResultView({ report, loading, onGenerate, onBack, events = [], onExport
         </div>
       </div>
 
-      <div className="surface fade-in mt-4 p-5" style={{ animationDelay: '300ms' }}>
+      <div className="surface fade-in mt-4 p-5" style={{ animationDelay: '210ms' }}>
         <div className="mb-2 flex items-center gap-2 text-[var(--warn)]">
           <AlertTriangle size={15} />
           <span className="text-[11px] font-semibold uppercase tracking-wider">{t('gap.title', 'Coverage gaps to verify')}</span>
@@ -604,18 +657,18 @@ function ResultView({ report, loading, onGenerate, onBack, events = [], onExport
 
       <ReportPreview report={report} onGenerate={onGenerate} loading={loading} onExported={onExported} onSigned={onSigned} onMarkdownUpdate={onMarkdownUpdate} />
 
-      <div className="surface fade-in mt-6 p-5" style={{ animationDelay: '400ms' }}>
+      <div className="surface fade-in mt-6 p-5" style={{ animationDelay: '240ms' }}>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-[var(--muted)]">
             <Clock size={15} />
             <span className="text-[11px] font-semibold uppercase tracking-wider">{t('timeline.title', 'Claim timeline')}</span>
           </div>
-          <button onClick={downloadAudit} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--accent)] hover:border-[var(--accent)]">
+          <button onClick={downloadAudit} data-print-hide className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--accent)] hover:border-[var(--accent)]">
             <FileText size={12} /> {t('audit.download', 'Download audit log')}
           </button>
         </div>
         {events.length === 0 ? (
-          <p className="text-sm text-[var(--muted)]">—</p>
+          <p className="text-sm text-[var(--muted)]">{t('timeline.empty', 'No events yet — they appear as you work the claim.')}</p>
         ) : (
           <ul className="space-y-1.5">
             {events.map((e, i) => (

@@ -5,10 +5,11 @@ import {
 } from 'lucide-react'
 import { extractPdfText, renderPdfPages } from '../lib/pdf'
 import { sniffKind, isImageKind, MAX_IMAGE_BYTES, MAX_PDF_BYTES } from '../lib/files'
-import { useI18n } from '../i18n'
+import { useI18n, useFormat } from '../i18n'
 
-function FileUpload({ onUpload, initial = null, onSnapshot = null }) {
+function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent = null }) {
   const { t } = useI18n()
+  const { num } = useFormat()
   const [files, setFiles] = useState(() => ({
     policyPdf: initial?.policy?.fileName ? { name: initial.policy.fileName } : null,
     damageImages: (initial?.damageImages || []).map(d => ({ file: null, name: d.name || 'damage photo', base64: d.base64, type: d.type })),
@@ -28,15 +29,30 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null }) {
   const pdfInput = useRef(null)
   const imgInput = useRef(null)
 
-  // Serializable snapshot for cancel-restore + continue-last-claim (App persists it).
+  const toSnap = () => ({
+    notes,
+    policy: { ...policy, error: '', fileName: files.policyPdf?.name || null },
+    damageImages: files.damageImages.map(f => ({ base64: f.base64, type: f.type, name: f.file?.name || f.name || 'damage photo' })),
+  })
+  // Debounced snapshot (400ms) so keystrokes don't re-serialize megabytes of
+  // image bytes; flushed synchronously on unmount (analyze click) so cancel
+  // always restores the latest inputs.
+  const snapTimer = useRef(null)
+  const snapRef = useRef(null)
+  const toSnapRef = useRef(null)
   useEffect(() => {
-    onSnapshot?.({
-      notes,
-      policy: { ...policy, error: '', fileName: files.policyPdf?.name || null },
-      damageImages: files.damageImages.map(f => ({ base64: f.base64, type: f.type, name: f.file?.name || f.name || 'damage photo' })),
-    })
+    snapRef.current = onSnapshot
+    toSnapRef.current = toSnap
+    clearTimeout(snapTimer.current)
+    snapTimer.current = setTimeout(() => snapRef.current?.(toSnapRef.current()), 400)
+    return () => {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes, policy, files])
+  }, [notes, policy, files, onSnapshot])
+  useEffect(() => () => {
+    clearTimeout(snapTimer.current)
+    snapRef.current?.(toSnapRef.current?.())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const readAsBase64 = file => new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -46,17 +62,19 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null }) {
   })
 
   const addImages = useCallback(async (fileList) => {
-    const incoming = []
-    let rejectedType = 0
-    let rejectedSize = 0
-    for (const file of Array.from(fileList)) {
+    const files_arr = Array.from(fileList)
+    // Parallel intake (order preserved); each file sniffed independently.
+    const results = await Promise.all(files_arr.map(async (file) => {
       const kind = await sniffKind(file)
-      if (!isImageKind(kind)) { rejectedType++; continue }
-      if (file.size > MAX_IMAGE_BYTES) { rejectedSize++; continue }
+      if (!isImageKind(kind)) return { rejected: 'type' }
+      if (file.size > MAX_IMAGE_BYTES) return { rejected: 'size' }
       const base64 = await readAsBase64(file)
       const type = kind === 'jpg' ? 'image/jpeg' : kind === 'png' ? 'image/png' : kind === 'gif' ? 'image/gif' : 'image/webp'
-      incoming.push({ file, name: file.name, base64, type })
-    }
+      return { file, name: file.name, base64, type }
+    }))
+    const incoming = results.filter(r => !r.rejected)
+    const rejectedType = results.filter(r => r.rejected === 'type').length
+    const rejectedSize = results.filter(r => r.rejected === 'size').length
     if (rejectedType + rejectedSize > 0) {
       setNotice(
         [rejectedType > 0 ? t('upload.rejectedType', 'Some files were skipped: JPEG, PNG, GIF, or WebP images only.') : null,
@@ -75,6 +93,8 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null }) {
     }))
   }, [t])
 
+  // Monotonic request id: rapid re-selections can't let a stale read win.
+  const pdfReq = useRef(0)
   const addPdf = useCallback(async (file) => {
     if (!file) return
     const isPdf = file.type === 'application/pdf' || file.name?.toLowerCase().endsWith('.pdf')
@@ -83,55 +103,82 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null }) {
     if (file.size > MAX_PDF_BYTES) {
       setFiles(prev => ({ ...prev, policyPdf: file }))
       setPolicy({ status: 'error', text: '', images: [], numPages: 0, truncated: false, error: t('upload.pdfTooLarge', 'That PDF exceeds the 15 MB limit. Try a smaller file.') })
+      onPolicyEvent?.('policyError')
       return
     }
     if ((await sniffKind(file)) !== 'pdf') {
       setFiles(prev => ({ ...prev, policyPdf: file }))
       setPolicy({ status: 'error', text: '', images: [], numPages: 0, truncated: false, error: t('upload.pdfBadMagic', 'That file is not a readable PDF. Try a different file.') })
+      onPolicyEvent?.('policyError')
       return
     }
+    const myReq = ++pdfReq.current
+    const stale = () => myReq !== pdfReq.current
     setFiles(prev => ({ ...prev, policyPdf: file }))
     setNotice('')
     setProgress(0)
     setPolicy({ status: 'reading', text: '', images: [], numPages: 0, truncated: false, error: '' })
     try {
-      const res = await extractPdfText(file, { onProgress: (f) => setProgress(f) })
+      const res = await extractPdfText(file, { onProgress: (f) => { if (!stale()) setProgress(f) } })
+      if (stale()) return
       setProgress(null)
+      onPolicyEvent?.('policyParsed')
       if (res.scanned) {
         // No text layer (scanned policy) — rasterize pages for Vision instead.
         const images = await renderPdfPages(file)
+        if (stale()) return
         setPolicy({ status: 'scanned', text: '', images, numPages: res.numPages, truncated: false, error: '' })
       } else {
         setPolicy({ status: 'ready', text: res.text, images: [], numPages: res.numPages, truncated: res.truncated, error: '' })
       }
     } catch (e) {
+      if (stale()) return
       console.error('[pdf] extraction failed', e)
       setProgress(null)
+      onPolicyEvent?.('policyError')
       setPolicy({ status: 'error', text: '', images: [], numPages: 0, truncated: false, error: e.message || 'Failed to read PDF. Try again or use a text-based PDF.' })
     }
-  }, [t])
+  }, [t, onPolicyEvent])
 
   const handleDrop = async (e) => {
     e.preventDefault()
     setDragging(false)
-    for (const file of Array.from(e.dataTransfer.files)) {
+    const dropped = Array.from(e.dataTransfer.files)
+    const pdfs = []
+    const imgs = []
+    for (const file of dropped) {
       const name = file.name?.toLowerCase() || ''
       const pdfish = file.type === 'application/pdf' || name.endsWith('.pdf')
       const imgish = file.type?.startsWith('image/') || /\.(jpe?g|png|gif|webp)$/.test(name)
-      if (pdfish) await addPdf(file)
-      else if (imgish) await addImages([file])
+      if (pdfish) pdfs.push(file)
+      else if (imgish) imgs.push(file)
     }
+    // First PDF wins; extras are reported, never silently swallowed.
+    if (pdfs.length > 1) {
+      setNotice(t('upload.pdfFirstOnly', 'Only the first PDF is attached; extra PDFs were skipped.'))
+    }
+    if (pdfs.length > 0) await addPdf(pdfs[0])
+    if (imgs.length > 0) await addImages(imgs)
   }
 
   const removeImage = idx =>
     setFiles(prev => ({ ...prev, damageImages: prev.damageImages.filter((_, i) => i !== idx) }))
 
+  const [armReset, setArmReset] = useState(false)
+  const armTimer = useRef(null)
   const reset = () => {
     setFiles({ policyPdf: null, damageImages: [] })
     setPolicy({ status: 'idle', text: '', images: [], numPages: 0, truncated: false, error: '' })
     setNotes('')
     setNotice('')
     setProgress(null)
+    setArmReset(false)
+  }
+  const askReset = () => {
+    if (armReset) { reset(); return }
+    setArmReset(true)
+    clearTimeout(armTimer.current)
+    armTimer.current = setTimeout(() => setArmReset(false), 3000)
   }
 
   const clearPdf = (e) => {
@@ -139,6 +186,14 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null }) {
     setFiles(prev => ({ ...prev, policyPdf: null }))
     setPolicy({ status: 'idle', text: '', images: [], numPages: 0, truncated: false, error: '' })
     setProgress(null)
+  }
+
+  const submitClaim = () => {
+    const total = files.damageImages.length + policy.images.length
+    if (total > 12) {
+      setNotice(t('upload.showing12', 'Showing first 12 of {n} images.').replace('{n}', num(total)))
+    }
+    onUpload({ files, getImagesForAI, getPdfText, getNotes })
   }
 
   const getImagesForAI = async () => {
@@ -150,7 +205,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null }) {
   const getPdfText = () => {
     if (!files.policyPdf) return ''
     if (policy.status === 'scanned') {
-      return '[Scanned policy: no text layer. The policy page images are attached — read the visible terms, coverage and exclusions from them.]'
+      return t('upload.scannedNote', '[Scanned policy: no text layer. The policy page images are attached — read the visible terms, coverage and exclusions from them.]')
     }
     return policy.text
   }
@@ -218,7 +273,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null }) {
               <div className="text-sm font-semibold text-[var(--accent)]">{t('upload.policy.ready', 'Policy parsed')}</div>
               <div className="mt-0.5 max-w-[14rem] truncate text-xs text-[var(--muted)]">{files.policyPdf.name}</div>
               <div className="tnum mt-1 text-[11px] text-[var(--muted)]">
-                {policy.numPages} {policy.numPages > 1 ? t('upload.pages', 'pages') : t('upload.page', 'page')} · {policy.text.length.toLocaleString()} {t('upload.chars', 'chars')}{policy.truncated ? ` ${t('upload.truncatedNote', '(first 30)')}` : ''}
+                {num(policy.numPages)} {policy.numPages > 1 ? t('upload.pages', 'pages') : t('upload.page', 'page')} · {num(policy.text.length)} {t('upload.chars', 'chars')}{policy.truncated ? ` ${t('upload.truncatedNote', '(first 30 pages)')}` : ''}
               </div>
             </>
           )}
@@ -268,15 +323,15 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null }) {
               <div className="mt-0.5 text-xs text-[var(--muted)]">{t('upload.photosHint', 'multiple images · jpg/png')}</div>
             </button>
           ) : (
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2 min-[400px]:grid-cols-3">
               {files.damageImages.map((f, i) => (
                 <div key={i} className="group relative aspect-square overflow-hidden rounded-xl border border-[var(--line)]">
-                  <img src={f.base64} alt={f.file?.name || f.name || 'damage photo'} className="h-full w-full object-cover" />
+                  <img src={f.base64} alt={f.file?.name || f.name || 'damage photo'} loading="lazy" className="h-full w-full object-cover" />
                   <button
                     type="button"
                     onClick={() => removeImage(i)}
                     aria-label={t('upload.removePhoto', 'Remove photo')}
-                    className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-black/70 text-white opacity-0 transition group-hover:opacity-100"
+                    className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-black/70 text-white opacity-0 transition focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 max-sm:opacity-100"
                   >
                     <X size={11} />
                   </button>
@@ -299,7 +354,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null }) {
 
       {/* Damage description */}
       {notice && (
-        <div className="mt-4 rounded-xl border border-[var(--warn)]/40 bg-[var(--warn-soft)] px-4 py-2.5 text-xs text-[var(--warn)]">
+        <div role="status" className="mt-4 rounded-xl border border-[var(--warn)]/40 bg-[var(--warn-soft)] px-4 py-2.5 text-xs text-[var(--warn)]">
           {notice}
         </div>
       )}
@@ -316,6 +371,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null }) {
           placeholder={t('upload.notesPh', 'e.g. Hail took shingles off the back slope; two windows cracked; gutters dented — moderate.')}
           className="w-full resize-y rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-3 py-2 text-sm text-[var(--fg)] outline-none transition placeholder:text-[var(--muted)]/60 focus:border-[var(--accent)]"
         />
+        <div className="tnum mt-1 text-right text-[10px] text-[var(--muted)]">{notes.length}/2000</div>
       </div>
 
       {/* Footer / CTA */}
@@ -327,13 +383,13 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null }) {
             </span>
           )}
           {(files.policyPdf || files.damageImages.length > 0 || notes.trim()) && (
-            <button onClick={reset} className="inline-flex items-center gap-1 underline transition hover:text-[var(--rose)]">
-              <RotateCcw size={11} /> {t('upload.reset', 'Reset')}
+            <button onClick={askReset} className="inline-flex items-center gap-1 underline transition hover:text-[var(--rose)]">
+              <RotateCcw size={11} /> {armReset ? t('common.confirmTap', 'Tap again to confirm') : t('upload.reset', 'Reset')}
             </button>
           )}
         </div>
         <button
-          onClick={() => onUpload({ files, getImagesForAI, getPdfText, getNotes })}
+          onClick={submitClaim}
           disabled={!hasAny}
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] px-5 py-2.5 text-sm font-semibold text-[#0b0d17] shadow-lg shadow-[var(--accent)]/20 transition enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
         >
