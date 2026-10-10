@@ -1,7 +1,9 @@
 import React, { useState } from 'react'
 import { apiPost } from '../lib/api'
+import { useI18n } from '../i18n'
 
 export default function SignInForm({ onRequestAccess }) {
+  const { t } = useI18n()
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState('idle') // idle | sending | done | error
   const [accessUrl, setAccessUrl] = useState(null)
@@ -18,7 +20,7 @@ export default function SignInForm({ onRequestAccess }) {
       setAccessUrl(res.accessUrl || null)
       setStatus('done')
     } catch (err) {
-      setError(err.message || 'Something went wrong')
+      setError(err.message || t('error.generic'))
       setStatus('error')
     }
   }
@@ -31,28 +33,28 @@ export default function SignInForm({ onRequestAccess }) {
             <path d="M4 6h16v12H4zM4 6l8 6 8-6" />
           </svg>
         </div>
-        <h3 className="mt-4 text-lg font-semibold">{accessUrl ? "You're in" : 'Check your inbox'}</h3>
+        <h3 className="mt-4 text-lg font-semibold">{accessUrl ? t('signin.doneIn', "You're in") : t('signin.inbox', 'Check your inbox')}</h3>
         {accessUrl ? (
           <>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Your sign-in link couldn't be e-mailed — the sender is in test mode.
+              {t('signin.testMode', "Your sign-in link couldn't be e-mailed — the sender is in test mode.")}
             </p>
             <a
               href={accessUrl}
               className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] px-5 py-2.5 text-sm font-semibold text-[#0b0d17] transition hover:brightness-110"
             >
-              Open your workspace →
+              {t('signin.openWorkspace', 'Open your workspace →')}
             </a>
           </>
         ) : (
           <>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              We sent a fresh sign-in link to <span className="text-[var(--fg)]">{email}</span>. Click it to get back in.
+              {t('signin.inboxBodyA', 'We sent a fresh sign-in link to')} <span className="text-[var(--fg)]">{email}</span>. {t('signin.inboxBodyB', 'Click it to get back in.')}
             </p>
             <p className="mt-3 text-xs text-[var(--muted)]">
-              Don't have access yet?{' '}
+              {t('signin.noAccess', "Don't have access yet?")}{' '}
               <button type="button" onClick={onRequestAccess} className="text-[var(--accent)] underline">
-                Request it
+                {t('signin.requestIt', 'Request it')}
               </button>
             </p>
           </>
@@ -64,28 +66,28 @@ export default function SignInForm({ onRequestAccess }) {
   return (
     <form onSubmit={submit} className="space-y-3">
       <label className="block">
-        <span className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-[var(--muted)]">Email</span>
+        <span className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-[var(--muted)]">{t('signin.email', 'Email')}</span>
         <input
           required
           type="email"
           value={email}
           onChange={e => setEmail(e.target.value)}
-          placeholder="the email you signed up with"
+          placeholder={t('signin.emailPh', 'the email you signed up with')}
           className="input"
         />
       </label>
 
-      {status === 'error' && <p className="text-xs text-[var(--rose)]">{error || 'Something went wrong. Please try again.'}</p>}
+      {status === 'error' && <p className="text-xs text-[var(--rose)]">{error || t('error.generic')}</p>}
 
       <button
         type="submit"
         disabled={!valid || status === 'sending'}
         className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] px-5 py-2.5 text-sm font-semibold text-[#0b0d17] transition enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {status === 'sending' ? 'Sending…' : 'Email me a sign-in link'}
+        {status === 'sending' ? t('signin.sending', 'Sending…') : t('signin.sendLink', 'Email me a sign-in link')}
       </button>
       <p className="text-center text-[11px] text-[var(--muted)]">
-        Use the same email you originally signed up with.
+        {t('signin.sameEmail', 'Use the same email you originally signed up with.')}
       </p>
     </form>
   )

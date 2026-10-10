@@ -5,7 +5,7 @@ import React, { useId } from 'react'
  * Used in empty / loading / success states. Pure SVG, theme-aware via
  * currentColor and CSS variables so it fits every theme.
  */
-export default function Mascot({ size = 96, mood = 'idle', float = true, className = '' }) {
+export default function Mascot({ size = 96, mood = 'idle', float = true, className = '', decorative = false }) {
   const id = useId().replace(/:/g, '')
   const gradId = `mascot-grad-${id}`
   const happy = mood === 'happy'
@@ -16,8 +16,7 @@ export default function Mascot({ size = 96, mood = 'idle', float = true, classNa
       height={size}
       viewBox="0 0 120 120"
       fill="none"
-      role="img"
-      aria-label="Themis the owl"
+      {...(decorative ? { role: 'presentation', 'aria-hidden': 'true' } : { role: 'img', 'aria-label': 'Themis the owl' })}
       className={`${float ? 'floaty' : ''} ${className}`}
     >
       <defs>

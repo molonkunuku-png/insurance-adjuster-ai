@@ -4,8 +4,10 @@ import DOMPurify from 'dompurify'
 import { FileText, Download, Code2, Eye, Sparkles, RefreshCw, Printer, FileDown } from 'lucide-react'
 import Mascot from './Mascot'
 import { exportDocx } from '../lib/ai'
+import { useI18n } from '../i18n'
 
 function ReportPreview({ report, onGenerate, loading }) {
+  const { t } = useI18n()
   const [showRaw, setShowRaw] = useState(false)
   const [busy, setBusy] = useState(null) // 'docx' | null
   const markdown = report?.markdown
@@ -31,7 +33,7 @@ function ReportPreview({ report, onGenerate, loading }) {
       a.click()
       URL.revokeObjectURL(url)
     } catch (e) {
-      alert(e.message || 'DOCX export failed')
+      alert(e.message || t('error.docxFailed', 'DOCX export failed'))
     } finally {
       setBusy(null)
     }
@@ -56,10 +58,10 @@ function ReportPreview({ report, onGenerate, loading }) {
         <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-5 py-4">
           <div className="flex items-center gap-2">
             <FileText size={16} className="text-[var(--accent)]" />
-            <span className="text-sm font-semibold">Loss report</span>
+            <span className="text-sm font-semibold">{t('report.title', 'Loss report')}</span>
             {markdown && (
               <span className="inline-flex items-center gap-1 rounded-full bg-[var(--success-soft)] px-2 py-0.5 text-[10px] font-medium text-[var(--success)]">
-                <Sparkles size={10} /> Generated
+                <Sparkles size={10} /> {t('report.generated', 'Generated')}
               </span>
             )}
           </div>
@@ -69,7 +71,7 @@ function ReportPreview({ report, onGenerate, loading }) {
                 onClick={() => setShowRaw(v => !v)}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--fg)]"
               >
-                {showRaw ? <><Eye size={12} /> Preview</> : <><Code2 size={12} /> Markdown</>}
+                {showRaw ? <><Eye size={12} /> {t('report.preview', 'Preview')}</> : <><Code2 size={12} /> {t('report.markdown', 'Markdown')}</>}
               </button>
               <button
                 onClick={() => window.print()}
@@ -98,10 +100,10 @@ function ReportPreview({ report, onGenerate, loading }) {
         <div className="p-5">
           {!markdown && (
             <div className="flex flex-col items-center gap-2 py-6 text-center">
-              <Mascot size={92} mood="idle" />
-              <p className="mt-2 text-sm font-medium">Ready when you are</p>
+              <Mascot size={92} mood="idle" decorative />
+              <p className="mt-2 text-sm font-medium">{t('report.readyTitle', 'Ready when you are')}</p>
               <p className="max-w-xs text-xs text-[var(--muted)]">
-                Generate the full loss report to see the draft appear here in seconds.
+                {t('report.readySub', 'Generate the full loss report to see the draft appear here in seconds.')}
               </p>
             </div>
           )}
@@ -127,12 +129,12 @@ function ReportPreview({ report, onGenerate, loading }) {
         {loading ? (
           <>
             <RefreshCw size={16} className="animate-spin" />
-            Drafting report…
+            {t('report.drafting', 'Drafting report…')}
           </>
         ) : markdown ? (
-          <><RefreshCw size={16} /> Regenerate report</>
+          <><RefreshCw size={16} /> {t('report.regenerate', 'Regenerate report')}</>
         ) : (
-          <><Sparkles size={16} /> Generate full report</>
+          <><Sparkles size={16} /> {t('report.generate', 'Generate full report')}</>
         )}
       </button>
     </div>

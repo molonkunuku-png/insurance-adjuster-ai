@@ -1,9 +1,11 @@
 import React, { useState } from 'react'
 import { apiPost } from '../lib/api'
+import { useI18n } from '../i18n'
 
 const ROLES = ['Independent (IA)', 'Staff adjuster', 'CAT adjuster', 'Desk adjuster', 'Other']
 
 export default function BetaForm({ compact = false }) {
+  const { t } = useI18n()
   const [form, setForm] = useState({ name: '', email: '', role: ROLES[0], claims: '' })
   const [status, setStatus] = useState('idle') // idle | sending | done | error
   const [granted, setGranted] = useState(false)
@@ -23,7 +25,7 @@ export default function BetaForm({ compact = false }) {
       setAccessUrl(res.accessUrl || null)
       setStatus('done')
     } catch (err) {
-      setError(err.message || 'Something went wrong')
+      setError(err.message || t('error.generic'))
       setStatus('error')
     }
   }
@@ -35,7 +37,7 @@ export default function BetaForm({ compact = false }) {
       if (res.accessUrl) setAccessUrl(res.accessUrl)
       setResent(true)
     } catch (err) {
-      setError(err.message || 'Could not resend')
+      setError(err.message || t('error.generic'))
     }
   }
 
@@ -52,32 +54,32 @@ export default function BetaForm({ compact = false }) {
 
         {emailBlocked ? (
           <>
-            <h3 className="mt-4 text-lg font-semibold">You're in</h3>
+            <h3 className="mt-4 text-lg font-semibold">{t('beta.doneIn', "You're in")}</h3>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Your access link couldn't be e-mailed — the sender is in test mode.
+              {t('beta.testMode', "Your access link couldn't be e-mailed — the sender is in test mode.")}
             </p>
             <a
               href={accessUrl}
               className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] px-5 py-2.5 text-sm font-semibold text-[#0b0d17] transition hover:brightness-110"
             >
-              Open your workspace →
+              {t('beta.openWorkspace', 'Open your workspace →')}
             </a>
             <p className="mt-2 text-[11px] text-[var(--muted)]">
-              This fallback only shows in test mode and disappears once a sending domain is verified.
+              {t('beta.testNote', 'This fallback only shows in test mode and disappears once a sending domain is verified.')}
             </p>
           </>
         ) : waitlist ? (
           <>
-            <h3 className="mt-4 text-lg font-semibold">You're on the list</h3>
+            <h3 className="mt-4 text-lg font-semibold">{t('beta.onList', "You're on the list")}</h3>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Thanks {form.name.split(' ')[0]} — a confirmation is on its way to <span className="text-[var(--fg)]">{form.email}</span>. We'll email your access link as soon as a spot opens.
+              {t('beta.listThanks', 'Thanks')} {form.name.split(' ')[0]} — {t('beta.listBodyA', 'a confirmation is on its way to')} <span className="text-[var(--fg)]">{form.email}</span>. {t('beta.listBodyB', "We'll email your access link as soon as a spot opens.")}
             </p>
           </>
         ) : (
           <>
-            <h3 className="mt-4 text-lg font-semibold">You're in</h3>
+            <h3 className="mt-4 text-lg font-semibold">{t('beta.doneIn', "You're in")}</h3>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Check <span className="text-[var(--fg)]">{form.email}</span> — we emailed your access link. Click it to open Themis.
+              {t('beta.emailedBodyA', 'Check')} <span className="text-[var(--fg)]">{form.email}</span> — {t('beta.emailedBodyB', 'we emailed your access link. Click it to open Themis.')}
             </p>
           </>
         )}
@@ -87,7 +89,7 @@ export default function BetaForm({ compact = false }) {
             onClick={resend}
             className="mt-4 text-xs text-[var(--muted)] underline transition hover:text-[var(--accent)]"
           >
-            {resent ? 'Access link resent ✓' : "Didn't get it? Resend"}
+            {resent ? t('beta.resent', 'Access link resent ✓') : t('beta.resend', "Didn't get it? Resend")}
           </button>
         )}
       </div>
@@ -99,35 +101,35 @@ export default function BetaForm({ compact = false }) {
       {!compact && (
         <>
           <span className="inline-flex items-center gap-2 rounded-full bg-[var(--accent-soft)] px-3 py-1 text-[11px] font-medium text-[var(--accent)]">
-            Free beta · limited spots
+            {t('beta.badge', 'Free beta · limited spots')}
           </span>
-          <h3 className="mt-3 text-xl font-bold tracking-tight">Become a beta tester</h3>
+          <h3 className="mt-3 text-xl font-bold tracking-tight">{t('beta.title', 'Become a beta tester')}</h3>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Get free access in exchange for honest feedback. Takes 20 seconds.
+            {t('beta.sub', 'Get free access in exchange for honest feedback. Takes 20 seconds.')}
           </p>
         </>
       )}
 
       <form onSubmit={submit} className="mt-5 space-y-3">
-        <Field label="Name">
-          <input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Jane Adjuster" className="input" />
+        <Field label={t('beta.name', 'Name')}>
+          <input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder={t('beta.namePh', 'Jane Adjuster')} className="input" />
         </Field>
-        <Field label="Work email">
-          <input required type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="jane@claimsco.com" className="input" />
+        <Field label={t('beta.workEmail', 'Work email')}>
+          <input required type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder={t('beta.emailPh', 'jane@claimsco.com')} className="input" />
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Role">
+          <Field label={t('beta.role', 'Role')}>
             <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} className="input">
               {ROLES.map(r => <option key={r}>{r}</option>)}
             </select>
           </Field>
-          <Field label="Claims handled / month">
-            <input value={form.claims} onChange={e => setForm({ ...form, claims: e.target.value })} placeholder="how many you handle, e.g. 40" className="input" />
+          <Field label={t('beta.claims', 'Claims handled / month')}>
+            <input value={form.claims} onChange={e => setForm({ ...form, claims: e.target.value })} placeholder={t('beta.claimsPh', 'how many you handle, e.g. 40')} className="input" />
           </Field>
         </div>
 
         {status === 'error' && (
-          <p className="text-xs text-[var(--rose)]">{error || 'Something went wrong. Please try again.'}</p>
+          <p className="text-xs text-[var(--rose)]">{error || t('error.generic')}</p>
         )}
 
         <button
@@ -135,10 +137,10 @@ export default function BetaForm({ compact = false }) {
           disabled={!valid || status === 'sending'}
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] px-5 py-2.5 text-sm font-semibold text-[#0b0d17] transition enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {status === 'sending' ? 'Sending…' : 'Request access'}
+          {status === 'sending' ? t('beta.sending', 'Sending…') : t('beta.request', 'Request access')}
         </button>
         <p className="text-center text-[11px] text-[var(--muted)]">
-          No spam. We only use this to invite you to the beta.
+          {t('beta.noSpam', 'No spam. We only use this to invite you to the beta.')}
         </p>
       </form>
     </>

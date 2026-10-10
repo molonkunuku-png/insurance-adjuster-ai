@@ -311,6 +311,15 @@ body::after {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+/* Visible keyboard focus on every interactive element */
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Tabular numerals: money, estimates, counts never shift layout */
+.tnum { font-variant-numeric: tabular-nums; }
+
 /* Custom arbitrary-value helpers used in JSX */
 .bg-\[var\(--accent-dim\)\] { background: var(--accent-soft); }
 .bg-\[var\(--primary-dim\)\] { background: var(--grape-soft); }
@@ -390,6 +399,13 @@ body::after {
   [data-print-hide] { display: none !important; }
 }
 
+/* No cursor spotlight on touch devices: no cursor, wasted battery */
+@media (pointer: coarse) {
+  body::after { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
   .fade-in, .floaty, .skeleton, .mascot-eyes, .beam::before, body::before { animation: none; opacity: 1; }
+  .animate-ping { animation: none; }
 }

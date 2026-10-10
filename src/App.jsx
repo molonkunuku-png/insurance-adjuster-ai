@@ -15,10 +15,10 @@ import { apiGet, apiPost } from './lib/api'
 import { I18nProvider, useI18n, LANGS } from './i18n'
 
 const THEMES = [
-  { id: 'dark', label: 'Dark', Icon: Moon },
-  { id: 'light', label: 'Light', Icon: Sun },
-  { id: 'dim', label: 'Dim (OLED)', Icon: MoonStar },
-  { id: 'contrast', label: 'High contrast', Icon: Contrast },
+  { id: 'dark', key: 'theme.dark', fb: 'Dark', Icon: Moon },
+  { id: 'light', key: 'theme.light', fb: 'Light', Icon: Sun },
+  { id: 'dim', key: 'theme.dim', fb: 'Dim (OLED)', Icon: MoonStar },
+  { id: 'contrast', key: 'theme.contrast', fb: 'High contrast', Icon: Contrast },
 ]
 
 function Brand() {
@@ -36,6 +36,7 @@ function Brand() {
 }
 
 function ThemeToggle({ theme, onSelect }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
   const current = THEMES.find(t => t.id === theme) || THEMES[0]
@@ -51,7 +52,7 @@ function ThemeToggle({ theme, onSelect }) {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(o => !o)}
-        aria-label="Change theme"
+        aria-label={t('header.themeLabel', 'Change theme')}
         aria-haspopup="menu"
         aria-expanded={open}
         className="flex h-9 items-center gap-1.5 rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-2.5 text-[var(--muted)] transition hover:text-[var(--fg)] hover:border-[var(--accent)]"
@@ -61,19 +62,19 @@ function ThemeToggle({ theme, onSelect }) {
       </button>
       {open && (
         <div role="menu" className="surface absolute right-0 z-30 mt-2 w-44 overflow-hidden p-1">
-          {THEMES.map(t => (
+          {THEMES.map(x => (
             <button
-              key={t.id}
+              key={x.id}
               role="menuitemradio"
-              aria-checked={t.id === theme}
-              onClick={() => { onSelect(t.id); setOpen(false) }}
+              aria-checked={x.id === theme}
+              onClick={() => { onSelect(x.id); setOpen(false) }}
               className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] transition ${
-                t.id === theme ? 'bg-[var(--bg-2)] text-[var(--fg)]' : 'text-[var(--muted)] hover:text-[var(--fg)]'
+                x.id === theme ? 'bg-[var(--bg-2)] text-[var(--fg)]' : 'text-[var(--muted)] hover:text-[var(--fg)]'
               }`}
             >
-              <t.Icon size={15} />
-              {t.label}
-              {t.id === theme && <CheckCircle2 size={13} className="ml-auto text-[var(--accent)]" />}
+              <x.Icon size={15} />
+              {t(x.key, x.fb)}
+              {x.id === theme && <CheckCircle2 size={13} className="ml-auto text-[var(--accent)]" />}
             </button>
           ))}
         </div>
@@ -83,9 +84,9 @@ function ThemeToggle({ theme, onSelect }) {
 }
 
 function LangToggle() {
-  const { lang, setLang } = useI18n()
+  const { lang, setLang, t } = useI18n()
   return (
-    <div className="flex items-center rounded-xl border border-[var(--line)] bg-[var(--bg-2)] p-0.5" role="group" aria-label="Language">
+    <div className="flex items-center rounded-xl border border-[var(--line)] bg-[var(--bg-2)] p-0.5" role="group" aria-label={t('header.langLabel', 'Language')}>
       {LANGS.map(l => (
         <button
           key={l.id}
@@ -103,13 +104,14 @@ function LangToggle() {
 }
 
 const FEATURES = [
-  { Icon: Zap, tint: 'var(--accent)', title: 'Instant Analysis', desc: 'Vision AI reads damage in seconds, not hours.' },
-  { Icon: ScanText, tint: 'var(--grape)', title: 'Policy Parsing', desc: 'Coverage & exclusions extracted automatically.' },
-  { Icon: Calculator, tint: 'var(--amber)', title: 'Cost Estimate', desc: 'Grounded repair & replacement valuation.' },
-  { Icon: FileText, tint: 'var(--rose)', title: 'Signed Report', desc: 'Client-ready loss report in one click.' },
+  { Icon: Zap, tint: 'var(--accent)', tKey: 'feat.t1', tFb: 'Instant Analysis', dKey: 'feat.d1', dFb: 'Vision AI reads damage in seconds, not hours.' },
+  { Icon: ScanText, tint: 'var(--grape)', tKey: 'feat.t2', tFb: 'Policy Parsing', dKey: 'feat.d2', dFb: 'Coverage & exclusions extracted automatically.' },
+  { Icon: Calculator, tint: 'var(--amber)', tKey: 'feat.t3', tFb: 'Cost Estimate', dKey: 'feat.d3', dFb: 'Grounded repair & replacement valuation.' },
+  { Icon: FileText, tint: 'var(--rose)', tKey: 'feat.t4', tFb: 'Signed Report', dKey: 'feat.d4', dFb: 'Client-ready loss report in one click.' },
 ]
 
 function FeatureCard({ f, i }) {
+  const { t } = useI18n()
   const { Icon } = f
   return (
     <div
@@ -122,8 +124,8 @@ function FeatureCard({ f, i }) {
       >
         <Icon size={20} />
       </div>
-      <div className="text-sm font-semibold">{f.title}</div>
-      <div className="mt-1 text-xs leading-relaxed text-[var(--muted)]">{f.desc}</div>
+      <div className="text-sm font-semibold">{t(f.tKey, f.tFb)}</div>
+      <div className="mt-1 text-xs leading-relaxed text-[var(--muted)]">{t(f.dKey, f.dFb)}</div>
     </div>
   )
 }
@@ -135,7 +137,7 @@ function StatCard({ label, value, tint, Icon, delay }) {
         <span style={{ color: tint }}><Icon size={15} /></span>
         <span className="text-[11px] font-semibold uppercase tracking-wider">{label}</span>
       </div>
-      <div className="text-sm leading-relaxed text-[var(--fg)]">{value || '—'}</div>
+      <div className="tnum text-sm leading-relaxed text-[var(--fg)]">{value || '—'}</div>
     </div>
   )
 }
@@ -143,19 +145,20 @@ function StatCard({ label, value, tint, Icon, delay }) {
 function Splash() {
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-center">
-      <Mascot size={84} mood="idle" />
+      <Mascot size={84} mood="idle" decorative />
       <p className="text-sm text-[var(--muted)]">Loading…</p>
     </div>
   )
 }
 
 const CONFIDENCE = {
-  high: { cls: 'lifecycle-approved', label: 'High confidence' },
-  medium: { cls: 'lifecycle-reviewing', label: 'Medium confidence' },
-  low: { cls: 'lifecycle-new', label: 'Low confidence' },
+  high: { cls: 'lifecycle-approved', key: 'result.confHigh', fb: 'High confidence' },
+  medium: { cls: 'lifecycle-reviewing', key: 'result.confMed', fb: 'Medium confidence' },
+  low: { cls: 'lifecycle-new', key: 'result.confLow', fb: 'Low confidence' },
 }
 
 function App() {
+  const { t } = useI18n()
   const [step, setStep] = useState('upload')
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -210,6 +213,11 @@ function App() {
     setReport(null)
   }
 
+  const scrollTop = () => {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' })
+  }
+
   const handleUpload = async ({ getImagesForAI, getPdfText, getNotes }) => {
     setStep('analyzing')
     setLoading(true)
@@ -218,17 +226,17 @@ function App() {
       const pdfText = getPdfText()
       const notes = getNotes()
       if (images.length === 0 && !notes.trim()) {
-        alert('Add at least one damage photo or a short description of the damage')
+        alert(t('error.needInput', 'Add at least one damage photo or a short description of the damage'))
         setStep('upload')
         return
       }
       const analysis = await analyzeDamageAndPolicy(images, pdfText, notes)
       setReport({ analysis, policyText: pdfText || '' })
       setStep('result')
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      scrollTop()
     } catch (e) {
       console.error(e)
-      alert(e.message || 'AI analysis failed')
+      alert(e.message || t('error.analysisFailed', 'AI analysis failed'))
       setStep('upload')
     } finally {
       setLoading(false)
@@ -243,7 +251,7 @@ function App() {
       setReport(r => ({ ...r, markdown }))
     } catch (e) {
       console.error(e)
-      alert(e.message || 'Report generation failed')
+      alert(e.message || t('error.reportFailed', 'Report generation failed'))
     } finally {
       setLoading(false)
     }
@@ -263,7 +271,7 @@ function App() {
                 onClick={logout}
                 className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-3 py-2 text-[13px] text-[var(--muted)] transition hover:text-[var(--fg)] hover:border-[var(--accent)]"
               >
-                <LogOut size={14} /> <span className="hidden sm:inline">Sign out</span>
+                <LogOut size={14} /> <span className="hidden sm:inline">{t('header.signOut', 'Sign out')}</span>
               </button>
             )}
             <ThemeToggle theme={theme} onSelect={setTheme} />
@@ -292,7 +300,7 @@ function App() {
       </main>
 
       <footer className="border-t border-[var(--line)] py-6 text-center text-xs text-[var(--muted)]">
-        Themis Adjuster AI · Built for faster, fairer claims
+        {t('footer.tagline', 'Themis Adjuster AI · Built for faster, fairer claims')}
       </footer>
     </div>
   )
@@ -308,7 +316,7 @@ function UploadView({ onUpload }) {
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--accent)] opacity-75" />
             <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
           </span>
-          AI-powered claim assessment
+          {t('hero.badge', 'AI-powered claim assessment')}
         </span>
         <h1 className="mt-5 text-4xl font-extrabold leading-[1.1] tracking-tight sm:text-5xl">
           {lang === 'ms' ? (
@@ -332,18 +340,18 @@ function UploadView({ onUpload }) {
       </div>
 
       <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {FEATURES.map((f, i) => <FeatureCard key={f.title} f={f} i={i} />)}
+        {FEATURES.map((f, i) => <FeatureCard key={f.tKey} f={f} i={i} />)}
       </div>
 
       <div className="fade-in mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] px-5 py-4 text-[12px] text-[var(--muted)]" style={{ animationDelay: '360ms' }}>
         <span className="inline-flex items-center gap-2">
-          <Lock size={14} className="text-[var(--accent)]" /> Photos processed in your session only
+          <Lock size={14} className="text-[var(--accent)]" /> {t('trust.1', 'Photos processed in your session only')}
         </span>
         <span className="inline-flex items-center gap-2">
-          <EyeOff size={14} className="text-[var(--accent)]" /> We never train models on your claims
+          <EyeOff size={14} className="text-[var(--accent)]" /> {t('trust.2', 'We never train models on your claims')}
         </span>
         <span className="inline-flex items-center gap-2">
-          <ShieldCheck size={14} className="text-[var(--accent)]" /> You review and sign the final report
+          <ShieldCheck size={14} className="text-[var(--accent)]" /> {t('trust.3', 'You review and sign the final report')}
         </span>
       </div>
     </div>
@@ -351,6 +359,7 @@ function UploadView({ onUpload }) {
 }
 
 function ResultView({ report, loading, onGenerate, onBack }) {
+  const { t } = useI18n()
   const a = report?.analysis || {}
   const conf = CONFIDENCE[a.confidence] || CONFIDENCE.low
   return (
@@ -360,35 +369,35 @@ function ResultView({ report, loading, onGenerate, onBack }) {
           onClick={onBack}
           className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-3.5 py-2 text-sm text-[var(--muted)] transition hover:text-[var(--fg)] hover:border-[var(--accent)]"
         >
-          ← New analysis
+          {t('result.new', '← New analysis')}
         </button>
-        <span className="text-xs text-[var(--muted)]">Analysis complete</span>
+        <span className="text-xs text-[var(--muted)]">{t('result.done', 'Analysis complete')}</span>
       </div>
 
       <div className="fade-in mt-6" style={{ animationDelay: '60ms' }}>
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-2xl font-bold tracking-tight">Loss assessment</h2>
-          <span className={`badge ${conf.cls}`}>{conf.label}</span>
+          <h2 className="text-2xl font-bold tracking-tight">{t('result.title', 'Loss assessment')}</h2>
+          <span className={`badge ${conf.cls}`}>{t(conf.key, conf.fb)}</span>
           {a.needsReview && (
             <span className="badge lifecycle-new" style={{ color: 'var(--danger)', background: 'var(--danger-soft)' }}>
-              <AlertTriangle size={11} /> Needs human review
+              <AlertTriangle size={11} /> {t('result.needsReview', 'Needs human review')}
             </span>
           )}
           <span className="badge lifecycle-approved">
-            <Clock size={11} /> ≈ 45 min saved vs hand-draft
+            <Clock size={11} /> {t('result.saved', '≈ 45 min saved vs hand-draft')}
           </span>
         </div>
-        <p className="mt-1 text-sm text-[var(--muted)]">AI-generated summary from your policy and photos.</p>
+        <p className="mt-1 text-sm text-[var(--muted)]">{t('result.summary', 'AI-generated summary from your policy and photos.')}</p>
       </div>
 
       <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-        <StatCard label="Coverage" value={a.coverage} tint="var(--accent)" Icon={ShieldCheck} delay={100} />
-        <StatCard label="Damage" value={a.damage} tint="var(--grape)" Icon={ScanEye} delay={160} />
-        <StatCard label="Estimated value" value={a.estimatedValue} tint="var(--amber)" Icon={DollarSign} delay={220} />
+        <StatCard label={t('result.coverage', 'Coverage')} value={a.coverage} tint="var(--accent)" Icon={ShieldCheck} delay={100} />
+        <StatCard label={t('result.damage', 'Damage')} value={a.damage} tint="var(--grape)" Icon={ScanEye} delay={160} />
+        <StatCard label={t('result.value', 'Estimated value')} value={a.estimatedValue} tint="var(--amber)" Icon={DollarSign} delay={220} />
         <div className="surface fade-in p-5" style={{ animationDelay: '280ms' }}>
           <div className="mb-2 flex items-center gap-2 text-[var(--info)]">
             <ListChecks size={15} />
-            <span className="text-[11px] font-semibold uppercase tracking-wider">Next steps</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wider">{t('result.next', 'Next steps')}</span>
           </div>
           <ul className="space-y-1.5">
             {(a.nextSteps || []).map((s, i) => (

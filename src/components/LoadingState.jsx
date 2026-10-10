@@ -1,30 +1,32 @@
 import React, { useEffect, useState } from 'react'
 import Mascot from './Mascot'
-
-const STEPS = [
-  'Reading policy document…',
-  'Analyzing damage photos…',
-  'Cross-referencing coverage…',
-  'Estimating repair value…',
-  'Drafting findings…',
-]
+import { useI18n } from '../i18n'
 
 function LoadingState() {
+  const { t } = useI18n()
+  const STEPS = [
+    t('loading.s1', 'Reading policy document…'),
+    t('loading.s2', 'Analyzing damage photos…'),
+    t('loading.s3', 'Cross-referencing coverage…'),
+    t('loading.s4', 'Estimating repair value…'),
+    t('loading.s5', 'Drafting findings…'),
+  ]
   const [active, setActive] = useState(0)
 
   useEffect(() => {
     const id = setInterval(() => setActive(a => (a + 1) % STEPS.length), 1400)
     return () => clearInterval(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return (
-    <div className="fade-in flex min-h-[60vh] flex-col items-center justify-center text-center">
+    <div className="fade-in flex min-h-[60vh] flex-col items-center justify-center text-center" role="status" aria-live="polite">
       <div className="relative">
         <div className="absolute inset-0 rounded-full bg-[var(--accent)]/20 blur-2xl" style={{ animation: 'pulseGlow 2.4s ease-in-out infinite' }} />
-        <Mascot size={104} mood="idle" className="relative" />
+        <Mascot size={104} mood="idle" decorative className="relative" />
       </div>
 
-      <h2 className="mt-6 text-lg font-semibold">Assessing your claim</h2>
+      <h2 className="mt-6 text-lg font-semibold">{t('loading.heading', 'Assessing your claim')}</h2>
       <p className="mt-1 text-sm text-[var(--muted)]">{STEPS[active]}</p>
 
       <div className="mt-6 h-1.5 w-56 overflow-hidden rounded-full bg-[var(--line)]">

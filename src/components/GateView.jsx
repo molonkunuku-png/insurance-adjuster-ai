@@ -1,14 +1,10 @@
 import React from 'react'
 import BetaForm from './BetaForm'
 import SignInForm from './SignInForm'
+import { useI18n } from '../i18n'
 
 // Only genuine failure states get a message. A successful verify redirects with
 // ?access=ok but the session cookie makes the app render, so no message needed.
-const MESSAGES = {
-  invalid: { tone: 'err', text: 'That access link is invalid. Request a new one below.' },
-  expired: { tone: 'err', text: 'That access link has expired. Request a new one below.' },
-  error: { tone: 'err', text: 'Something went wrong verifying your link. Request a new one below.' },
-}
 
 function Tab({ active, onClick, children }) {
   return (
@@ -25,7 +21,13 @@ function Tab({ active, onClick, children }) {
 }
 
 export default function GateView({ accessStatus, mode = 'signup', onModeChange }) {
-  const msg = accessStatus ? MESSAGES[accessStatus] : null
+  const { t } = useI18n()
+  const MESSAGES = {
+    invalid: 'gate.errInvalid',
+    expired: 'gate.errExpired',
+    error: 'gate.errFailed',
+  }
+  const msgKey = accessStatus ? MESSAGES[accessStatus] : null
   const signin = mode === 'signin'
   return (
     <div className="fade-in mx-auto max-w-md pt-4 text-center">
@@ -35,23 +37,22 @@ export default function GateView({ accessStatus, mode = 'signup', onModeChange }
           <path d="M8 10V7a4 4 0 0 1 8 0v3" />
         </svg>
       </div>
-      <h1 className="mt-5 text-3xl font-extrabold leading-tight tracking-tight">Beta access required</h1>
+      <h1 className="mt-5 text-3xl font-extrabold leading-tight tracking-tight">{t('gate.title', 'Beta access required')}</h1>
       <p className="mx-auto mt-3 max-w-sm text-[15px] leading-relaxed text-[var(--muted)]">
-        Themis is in private beta. {signin
-          ? "Enter your email and we'll send you a link to get back in."
-          : "Request access and we'll email you a link that opens your workspace instantly."}
+        {signin ? t('gate.subSignin', "Enter your email and we'll send you a link to get back in.")
+          : t('gate.subSignup', "Themis is in private beta. Request access and we'll email you a link that opens your workspace instantly.")}
       </p>
 
-      {msg && (
+      {msgKey && (
         <div className="mt-5 rounded-xl border border-[var(--rose)]/40 bg-[var(--rose)]/10 px-4 py-3 text-sm text-[var(--rose)]">
-          {msg.text}
+          {t(msgKey)}
         </div>
       )}
 
       <div className="surface mt-6 p-6 text-left">
         <div className="mb-5 grid grid-cols-2 gap-1 rounded-xl bg-[var(--bg-2)] p-1">
-          <Tab active={!signin} onClick={() => onModeChange?.('signup')}>Request access</Tab>
-          <Tab active={signin} onClick={() => onModeChange?.('signin')}>Sign in</Tab>
+          <Tab active={!signin} onClick={() => onModeChange?.('signup')}>{t('gate.tabSignup', 'Request access')}</Tab>
+          <Tab active={signin} onClick={() => onModeChange?.('signin')}>{t('gate.tabSignin', 'Sign in')}</Tab>
         </div>
         {signin ? <SignInForm onRequestAccess={() => onModeChange?.('signup')} /> : <BetaForm />}
       </div>

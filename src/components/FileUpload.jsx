@@ -140,22 +140,22 @@ function FileUpload({ onUpload }) {
 
           {!files.policyPdf && (
             <>
-              <div className="text-sm font-semibold">Drop policy PDF</div>
-              <div className="mt-0.5 text-xs text-[var(--muted)]">or click to browse · .pdf</div>
+              <div className="text-sm font-semibold">{t('upload.dropPdf', 'Drop policy PDF')}</div>
+              <div className="mt-0.5 text-xs text-[var(--muted)]">{t('upload.browsePdf', 'or click to browse · .pdf')}</div>
             </>
           )}
           {pdfBusy && (
             <>
               <div className="text-sm font-semibold text-[var(--accent)]">{t('upload.policy.reading', 'Reading policy…')}</div>
-              <div className="mt-0.5 text-xs text-[var(--muted)]">extracting the fine print</div>
+              <div className="mt-0.5 text-xs text-[var(--muted)]">{t('upload.finePrint', 'extracting the fine print')}</div>
             </>
           )}
           {files.policyPdf && policy.status === 'ready' && (
             <>
               <div className="text-sm font-semibold text-[var(--accent)]">{t('upload.policy.ready', 'Policy parsed')}</div>
               <div className="mt-0.5 max-w-[14rem] truncate text-xs text-[var(--muted)]">{files.policyPdf.name}</div>
-              <div className="mt-1 text-[11px] text-[var(--muted)]">
-                {policy.numPages} page{policy.numPages > 1 ? 's' : ''} · {policy.text.length.toLocaleString()} chars{policy.truncated ? ' (first 30)' : ''}
+              <div className="tnum mt-1 text-[11px] text-[var(--muted)]">
+                {policy.numPages} {policy.numPages > 1 ? t('upload.pages', 'pages') : t('upload.page', 'page')} · {policy.text.length.toLocaleString()} {t('upload.chars', 'chars')}{policy.truncated ? ` ${t('upload.truncatedNote', '(first 30)')}` : ''}
               </div>
             </>
           )}
@@ -163,7 +163,7 @@ function FileUpload({ onUpload }) {
             <>
               <div className="text-sm font-semibold text-[var(--accent)]">{t('upload.policy.scanned', 'Scanned policy')}</div>
               <div className="mt-0.5 max-w-[14rem] truncate text-xs text-[var(--muted)]">{files.policyPdf.name}</div>
-              <div className="mt-1 text-[11px] text-[var(--muted)]">no text layer · sending {policy.images.length} page image{policy.images.length > 1 ? 's' : ''}</div>
+              <div className="tnum mt-1 text-[11px] text-[var(--muted)]">{t('upload.scannedNoText', 'no text layer')} · {t('upload.sending', 'sending')} {policy.images.length} {policy.images.length > 1 ? t('upload.pageImages', 'page images') : t('upload.pageImage', 'page image')}</div>
             </>
           )}
           {files.policyPdf && policy.status === 'error' && (
@@ -181,7 +181,7 @@ function FileUpload({ onUpload }) {
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') clearPdf(e) }}
               className="mt-2 inline-flex items-center gap-1 rounded-lg border border-[var(--line)] bg-[var(--bg-2)] px-2 py-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--danger)]"
             >
-              <RotateCcw size={11} /> Replace
+              <RotateCcw size={11} /> {t('upload.replace', 'Replace')}
             </span>
           )}
         </button>
@@ -201,8 +201,8 @@ function FileUpload({ onUpload }) {
               <div className="mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-[var(--bg-2)] text-[var(--muted)] transition group-hover:text-[var(--grape)]">
                 <ImagePlus size={22} />
               </div>
-              <div className="text-sm font-semibold">Add damage photos</div>
-              <div className="mt-0.5 text-xs text-[var(--muted)]">multiple images · jpg/png</div>
+              <div className="text-sm font-semibold">{t('upload.addPhotos', 'Add damage photos')}</div>
+              <div className="mt-0.5 text-xs text-[var(--muted)]">{t('upload.photosHint', 'multiple images · jpg/png')}</div>
             </button>
           ) : (
             <div className="grid grid-cols-3 gap-2">
@@ -212,7 +212,7 @@ function FileUpload({ onUpload }) {
                   <button
                     type="button"
                     onClick={() => removeImage(i)}
-                    aria-label="Remove photo"
+                    aria-label={t('upload.removePhoto', 'Remove photo')}
                     className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-black/70 text-white opacity-0 transition group-hover:opacity-100"
                   >
                     <X size={11} />
@@ -237,7 +237,7 @@ function FileUpload({ onUpload }) {
       {/* Damage description */}
       <div className="mt-4">
         <label htmlFor="damage-notes" className="mb-1.5 block text-xs font-medium text-[var(--muted)]">
-          Describe the damage <span className="text-[var(--muted)]/70">(optional — helps even without photos)</span>
+          {t('upload.notesLabel', 'Describe the damage')} <span className="text-[var(--muted)]/70">{t('upload.notesOptional', '(optional — helps even without photos)')}</span>
         </label>
         <textarea
           id="damage-notes"
@@ -245,7 +245,7 @@ function FileUpload({ onUpload }) {
           onChange={e => setNotes(e.target.value)}
           rows={2}
           maxLength={2000}
-          placeholder="e.g. Hail took shingles off the back slope; two windows cracked; gutters dented — moderate."
+          placeholder={t('upload.notesPh', 'e.g. Hail took shingles off the back slope; two windows cracked; gutters dented — moderate.')}
           className="w-full resize-y rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-3 py-2 text-sm text-[var(--fg)] outline-none transition placeholder:text-[var(--muted)]/60 focus:border-[var(--accent)]"
         />
       </div>
@@ -254,13 +254,13 @@ function FileUpload({ onUpload }) {
       <div className="mt-5 flex flex-col-reverse items-center gap-3 sm:flex-row sm:justify-between">
         <div className="flex items-center gap-3 text-xs text-[var(--muted)]">
           {files.damageImages.length > 0 && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--bg-2)] px-2.5 py-1">
-              {files.damageImages.length} photo{files.damageImages.length > 1 ? 's' : ''}
+            <span className="tnum inline-flex items-center gap-1.5 rounded-full bg-[var(--bg-2)] px-2.5 py-1">
+              {files.damageImages.length} {files.damageImages.length > 1 ? t('upload.photos', 'photos') : t('upload.photo', 'photo')}
             </span>
           )}
           {(files.policyPdf || files.damageImages.length > 0 || notes.trim()) && (
             <button onClick={reset} className="inline-flex items-center gap-1 underline transition hover:text-[var(--rose)]">
-              <RotateCcw size={11} /> Reset
+              <RotateCcw size={11} /> {t('upload.reset', 'Reset')}
             </button>
           )}
         </div>
@@ -270,12 +270,12 @@ function FileUpload({ onUpload }) {
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] px-5 py-2.5 text-sm font-semibold text-[#0b0d17] shadow-lg shadow-[var(--accent)]/20 transition enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
         >
           <ArrowRight size={16} strokeWidth={2.2} />
-          Analyze claim
+          {t('upload.analyze', 'Analyze claim')}
         </button>
       </div>
       {!hasAny && (
         <p className="mt-2 text-right text-[11px] text-[var(--muted)]">
-          {pdfBusy ? 'Reading your policy PDF…' : 'Add a policy PDF, a damage photo, or a short description to continue.'}
+          {pdfBusy ? t('upload.readingYours', 'Reading your policy PDF…') : t('upload.hintIdle', 'Add a policy PDF, a damage photo, or a short description to continue.')}
         </p>
       )}
     </div>
