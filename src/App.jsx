@@ -3,7 +3,7 @@ import {
   ShieldCheck, Zap, ScanText, Calculator, FileText, Sun, Moon, MoonStar,
   Contrast, LogOut, ChevronDown, ScanEye, DollarSign, ListChecks,
   AlertTriangle, CheckCircle2, Clock, Lock, EyeOff, History, Flame,
-  Wind, CloudHail, Waves, Droplet, Mountain, Sparkles, X, ShieldAlert, Snowflake, Send,
+  Wind, CloudHail, Waves, Droplet, Mountain, Sparkles, X, ShieldAlert, Snowflake, Send, WifiOff,
 } from 'lucide-react'
 import FileUpload from './components/FileUpload'
 import ReportPreview from './components/ReportPreview'
@@ -101,8 +101,28 @@ function ThemeToggle({ theme, onSelect }) {
   )
 }
 
-function FooterStatus() {
+function OfflineBadge() {
   const { t } = useI18n()
+  const [online, setOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine))
+  useEffect(() => {
+    const up = () => setOnline(true)
+    const down = () => setOnline(false)
+    window.addEventListener('online', up)
+    window.addEventListener('offline', down)
+    return () => {
+      window.removeEventListener('online', up)
+      window.removeEventListener('offline', down)
+    }
+  }, [])
+  if (online) return null
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--warn-soft)] px-2.5 py-1 text-[11px] font-medium text-[var(--warn)]">
+      <WifiOff size={12} /> {t('net.offline', 'Offline — drafts stay on this device')}
+    </span>
+  )
+}
+
+function FooterStatus() {  const { t } = useI18n()
   const [ok, setOk] = useState(null)
   useEffect(() => {
     let live = true
@@ -516,6 +536,7 @@ function App() {
         <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3.5">
           <Brand />
           <div className="flex items-center gap-2" data-print-hide>
+            <OfflineBadge />
             {auth === 'in' && email && (
               <span className="hidden max-w-[14rem] truncate text-[11px] text-[var(--muted)] sm:inline">{email}</span>
             )}
@@ -597,6 +618,8 @@ function App() {
                 carrierBrand={carrierBrand}
                 onExported={() => logEvent('docx')}
                 onSigned={() => logEvent('signed')}
+                onGapReview={() => logEvent('gap')}
+                onFeedback={() => logEvent('feedback')}
                 onMarkdownUpdate={(markdown) => setReport(r => (r ? { ...r, markdown } : r))}
               />
             )}
@@ -738,13 +761,30 @@ const PERIL_STYLE = {
   lightning: { cls: 'peril-structural', Icon: Zap },
 }
 
-function ResultView({ report, loading, onGenerate, onBack, events = [], onExported, onSigned, onMarkdownUpdate, carrierBrand = '' }) {
+function ResultView({ report, loading, onGenerate, onBack, events = [], onExported, onSigned, onMarkdownUpdate, carrierBrand = '', onGapReview, onFeedback }) {
   const { t } = useI18n()
   const { dateTime, num } = useFormat()
   const a = report?.analysis || {}
   const conf = CONFIDENCE[a.confidence] || CONFIDENCE.low
   const perils = Array.isArray(a.perils) ? a.perils : []
   const gaps = Array.isArray(a.gaps) ? a.gaps : []
+  const [gapState, setGapState] = useState({})
+  const [voted, setVoted] = useState(null)
+
+  const reviewGap = (key, verdict) => {
+    setGapState(s => ({ ...s, [key]: verdict }))
+    onGapReview?.()
+  }
+
+  const vote = (yes) => {
+    setVoted(yes)
+    try {
+      const tally = JSON.parse(localStorage.getItem('themis-accuracy') || '{"yes":0,"no":0}')
+      tally[yes ? 'yes' : 'no'] += 1
+      localStorage.setItem('themis-accuracy', JSON.stringify(tally))
+    } catch { /* ignore */ }
+    onFeedback?.()
+  }
 
   const downloadAudit = () => {
     const log = {
@@ -848,20 +888,58 @@ function ResultView({ report, loading, onGenerate, onBack, events = [], onExport
           <p className="text-sm text-[var(--muted)]">{t('gap.clear', 'No checklist gaps detected in the extracted text.')}</p>
         ) : (
           <ul className="space-y-2">
-            {gaps.map(g => (
+            {gaps.map(g => {
+              const verdict = gapState[g.key]
+              return (
               <li key={g.key} className="text-sm text-[var(--muted)]">
                 <span className="font-semibold text-[var(--fg)]">{t(`gap.${g.key}`, g.label)}</span>
                 {g.damageRelevant && (
                   <span className="badge lifecycle-reviewing ml-2">{t('gap.inNotes', 'mentioned in loss notes')}</span>
                 )}
+                {verdict && (
+                  <span className={`badge ml-2 ${verdict === 'accepted' ? 'lifecycle-approved' : 'lifecycle-new'}`}>
+                    {verdict === 'accepted' ? t('gap.accepted', 'Confirmed') : t('gap.dismissed', 'Dismissed')}
+                  </span>
+                )}
                 <span className="block text-[13px]">{g.damageRelevant ? t('gap.noteVerify') : t('gap.noteCheck')}</span>
+                {!verdict && (
+                  <span className="mt-1 flex gap-2">
+                    <button onClick={() => reviewGap(g.key, 'accepted')} className="rounded-lg border border-[var(--line)] px-2 py-0.5 text-[11px] transition hover:border-[var(--accent)] hover:text-[var(--accent)]">
+                      {t('gap.accept', 'Confirm')}
+                    </button>
+                    <button onClick={() => reviewGap(g.key, 'dismissed')} className="rounded-lg border border-[var(--line)] px-2 py-0.5 text-[11px] transition hover:text-[var(--muted)]">
+                      {t('gap.dismiss', 'Dismiss')}
+                    </button>
+                  </span>
+                )}
               </li>
-            ))}
+              )
+            })}
           </ul>
         )}
       </div>
 
       <ReportPreview report={report} onGenerate={onGenerate} loading={loading} onExported={onExported} onSigned={onSigned} onMarkdownUpdate={onMarkdownUpdate} carrierBrand={carrierBrand} />
+
+      <div className="surface fade-in mt-4 p-5" style={{ animationDelay: '210ms' }}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-sm font-medium">{t('feedback.q', 'Was this assessment accurate?')}</span>
+          {voted === null ? (
+            <span className="flex gap-2">
+              <button onClick={() => vote(true)} className="rounded-xl border border-[var(--line)] px-3.5 py-1.5 text-[13px] transition hover:border-[var(--accent)] hover:text-[var(--accent)]">
+                {t('feedback.yes', 'Yes')}
+              </button>
+              <button onClick={() => vote(false)} className="rounded-xl border border-[var(--line)] px-3.5 py-1.5 text-[13px] transition hover:border-[var(--danger)] hover:text-[var(--danger)]">
+                {t('feedback.no', 'No')}
+              </button>
+            </span>
+          ) : (
+            <span className="badge lifecycle-approved">
+              <CheckCircle2 size={11} /> {t('ev.feedback', 'Feedback recorded')}
+            </span>
+          )}
+        </div>
+      </div>
 
       <div className="surface fade-in mt-6 p-5" style={{ animationDelay: '240ms' }}>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">

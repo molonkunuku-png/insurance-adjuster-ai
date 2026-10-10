@@ -10,10 +10,10 @@ import { useI18n, useFormat } from '../i18n'
 
 function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent = null }) {
   const { t } = useI18n()
-  const { num } = useFormat()
+  const { num, dateTime } = useFormat()
   const [files, setFiles] = useState(() => ({
     policyPdf: initial?.policy?.fileName ? { name: initial.policy.fileName } : null,
-    damageImages: (initial?.damageImages || []).map(d => ({ file: null, name: d.name || 'damage photo', base64: d.base64, type: d.type, severity: d.severity || '' })),
+    damageImages: (initial?.damageImages || []).map(d => ({ file: null, name: d.name || 'damage photo', base64: d.base64, type: d.type, severity: d.severity || '', takenAt: d.takenAt || null })),
   }))
   const [policy, setPolicy] = useState(() => ({
     status: initial?.policy?.status || 'idle',
@@ -33,7 +33,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
   const toSnap = () => ({
     notes,
     policy: { ...policy, error: '', fileName: files.policyPdf?.name || null },
-      damageImages: files.damageImages.map(f => ({ base64: f.base64, type: f.type, name: f.file?.name || f.name || t('upload.altPhoto', 'damage photo'), severity: f.severity || '' })),
+      damageImages: files.damageImages.map(f => ({ base64: f.base64, type: f.type, name: f.file?.name || f.name || t('upload.altPhoto', 'damage photo'), severity: f.severity || '', takenAt: f.takenAt || null })),
   })
   // Debounced snapshot (400ms) so keystrokes don't re-serialize megabytes of
   // image bytes; flushed synchronously on unmount (analyze click) so cancel
@@ -72,7 +72,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
       if (await containsEicar(file)) return { rejected: 'malware' }
       const base64 = await readAsBase64(file)
       const type = kind === 'jpg' ? 'image/jpeg' : kind === 'png' ? 'image/png' : kind === 'gif' ? 'image/gif' : 'image/webp'
-      return { file, name: file.name, base64, type, severity: '' }
+      return { file, name: file.name, base64, type, severity: '', takenAt: file.lastModified || Date.now() }
     }))
     const incoming = results.filter(r => !r.rejected)
     const rejectedType = results.filter(r => r.rejected === 'type').length
@@ -345,7 +345,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
             <div className="grid grid-cols-2 gap-2 min-[400px]:grid-cols-3">
               {files.damageImages.map((f, i) => (
                 <div key={i} className="group relative aspect-square overflow-hidden rounded-xl border border-[var(--line)]">
-                  <img src={f.base64} alt={f.file?.name || f.name || t('upload.altPhoto', 'damage photo')} loading="lazy" className="h-full w-full object-cover" />
+                  <img src={f.base64} alt={f.file?.name || f.name || t('upload.altPhoto', 'damage photo')} title={f.takenAt ? dateTime(f.takenAt) : undefined} loading="lazy" className="h-full w-full object-cover" />
                   <button
                     type="button"
                     onClick={() => removeImage(i)}
@@ -384,6 +384,11 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
       <input ref={imgInput} type="file" accept="image/*" multiple className="hidden" onChange={e => { addImages(e.target.files); e.target.value = '' }} />
 
       {/* Damage description */}
+      {files.damageImages.some(f => f.takenAt && f.takenAt > Date.now() + 60000) && (
+        <div role="status" className="mt-4 rounded-xl border border-[var(--warn)]/40 bg-[var(--warn-soft)] px-4 py-2.5 text-xs text-[var(--warn)]">
+          {t('upload.futurePhoto', 'A photo is dated in the future — check the camera clock before relying on timestamps.')}
+        </div>
+      )}
       {notice && (
         <div role="status" className="mt-4 rounded-xl border border-[var(--warn)]/40 bg-[var(--warn-soft)] px-4 py-2.5 text-xs text-[var(--warn)]">
           {notice}

@@ -183,9 +183,15 @@ function buildDamage(damageNotes, policyLines, imageCount) {
 
   const seen = imageCount > 0 ? `${imageCount} damage image(s) supplied but not machine-read in local mode.` : 'No damage images supplied.'
   if (hits.length === 0) {
-    return `Damage descriptors not confidently identified from the free-text notes alone. ${seen} Every item below is based on the typed description and must be confirmed against the actual loss photos.`
+    return {
+      text: `Damage descriptors not confidently identified from the free-text notes alone. ${seen} Every item below is based on the typed description and must be confirmed against the actual loss photos.`,
+      dimensions: [],
+    }
   }
-  return `Reported damage dimensions to verify: ${hits.join(', ')}. ${seen} A human adjuster must confirm extent and cause against the actual loss photos and the policy's covered perils.`
+  return {
+    text: `Reported damage dimensions to verify: ${hits.join(', ')}. ${seen} A human adjuster must confirm extent and cause against the actual loss photos and the policy's covered perils.`,
+    dimensions: hits,
+  }
 }
 
 /** Local mode never assigns money: that decision is reserved for a human or a paid model pass. */
@@ -226,13 +232,16 @@ export function localAnalyze({ policyText, damageNotes, imageCount = 0 }) {
       needsReview: true,
       gaps: [],
       perils: [],
+      dimensions: [],
       partial: false,
     }
   }
 
+  const dmg = buildDamage(notes, policyLines, cappedImages)
   return {
     coverage: buildCoverage(facts),
-    damage: buildDamage(notes, policyLines, cappedImages),
+    damage: dmg.text,
+    dimensions: dmg.dimensions,
     estimatedValue: buildEstimate(),
     nextSteps: buildNextSteps(facts),
     confidence: 'low',
@@ -281,10 +290,21 @@ function scoreSentence(sentence, want) {
   return score
 }
 
-export function localAsk({ policyText, question, history: _history = [] }) {
+export function localAsk({ policyText, question, history: _history = [], lang = 'en' }) {
   // NOTE: localAsk is intentionally stateless — history is accepted for API
   // shape parity with the OpenAI path but never influences the answer. Every
   // answer is keyword grounding against the supplied policy text only.
+  const L = lang === 'ms' ? {
+    noPolicy: 'Tiada teks polisi dilampirkan, jadi jawapan berasas tidak dapat diberikan. Lampirkan PDF polisi dan tanya semula.',
+    notFound: (q) => `Tiada bahasa dalam polisi yang diberikan menjawab secara langsung "${q}". Penyelaras manusia harus mengesahkan dengan perkataan penuh polisi.`,
+    found: (n, q) => `Ditemukan ${n} petikan dalam polisi yang diberikan berkaitan "${q}".`,
+    tail: 'Semua angka dan had di bawah adalah seperti yang tertulis dalam polisi; sahkan rujukan halaman sebelum menyebut harga.',
+  } : {
+    noPolicy: 'No policy text was attached, so I cannot ground an answer. Attach the policy PDF and ask again.',
+    notFound: (q) => `I could not find language in the provided policy that directly addresses "${q}". A human adjuster should confirm against the full policy wording.`,
+    found: (n, q) => `Found ${n} passage${n > 1 ? 's' : ''} in the supplied policy relevant to "${q}".`,
+    tail: 'All figures and limits below are as written in the policy; verify page references before quoting.',
+  }
   const q = String(question || '').trim().slice(0, 1200)
   // Enforce the route's 40k cap here too so direct importers get the same guard.
   const policy = String(policyText || '').slice(0, 40000)
@@ -292,7 +312,7 @@ export function localAsk({ policyText, question, history: _history = [] }) {
   if (!q) return { answer: '', grounded: false, citations: [], confidence: 'low' }
   if (!policy) {
     return {
-      answer: 'No policy text was attached, so I cannot ground an answer. Attach the policy PDF and ask again.',
+      answer: L.noPolicy,
       grounded: false,
       citations: [],
       confidence: 'low',
@@ -307,7 +327,7 @@ export function localAsk({ policyText, question, history: _history = [] }) {
 
   if (scored.length === 0) {
     return {
-      answer: `I could not find language in the provided policy that directly addresses "${q.slice(0, 200)}". A human adjuster should confirm against the full policy wording.`,
+      answer: L.notFound(q.slice(0, 200)),
       grounded: false,
       citations: [],
       confidence: 'low',
@@ -322,9 +342,9 @@ export function localAsk({ policyText, question, history: _history = [] }) {
   const confidence = scored[0].score >= 3 ? 'medium' : 'low'
 
   const answer = [
-    `Found ${top.length} passage${top.length > 1 ? 's' : ''} in the supplied policy relevant to "${q.slice(0, 200)}".`,
+    L.found(top.length, q.slice(0, 200)),
     ...top.slice(0, 3).map(m => `• ${m.sentence}`),
-    'All figures and limits below are as written in the policy; verify page references before quoting.',
+    L.tail,
   ].join('\n')
 
   return { answer, grounded: true, citations, confidence }

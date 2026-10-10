@@ -13,7 +13,7 @@ import { useI18n, useFormat } from '../i18n'
  * Requires a policy to have been parsed in this session.
  */
 export default function AskPanel({ policyText }) {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const { num } = useFormat()
   const CONF = {
     high: { cls: 'lifecycle-approved', label: t('ask.confH', 'High') },
@@ -43,7 +43,7 @@ export default function AskPanel({ policyText }) {
     setBusy(true)
     setError('')
     try {
-      const r = await askPolicy(policyText, q, thread.slice(-4))
+      const r = await askPolicy(policyText, q, thread.slice(-4), lang)
       setThread(t => [...t, { q, r }])
       setInput('')
       const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches

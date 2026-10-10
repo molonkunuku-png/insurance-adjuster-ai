@@ -19,8 +19,8 @@ export async function generateReport(analysis, lang = 'en') {
   return markdown
 }
 
-export async function askPolicy(policyText, question, history = []) {
-  const { response } = await apiPost('/api/ask', { policyText, question, history })
+export async function askPolicy(policyText, question, history = [], lang = 'en') {
+  const { response } = await apiPost('/api/ask', { policyText, question, history, lang })
   return response
 }
 

@@ -109,10 +109,14 @@ export function createApp() {
 
   function requireAdmin(req, res, next) {
     const secret = req.get('x-admin-secret') || ''
-    if (!config.adminSecret || !safeEqual(secret, config.adminSecret)) {
-      return res.status(401).json({ error: 'unauthorized' })
+    if (config.adminSecret && safeEqual(secret, config.adminSecret)) return next()
+    // Owner session gate: the CONTACT_EMAIL session is admin without the
+    // header secret, so a future admin UI never needs the secret in-browser.
+    if (req.session && config.contactEmail &&
+        String(req.session.email || '').toLowerCase() === String(config.contactEmail).toLowerCase()) {
+      return next()
     }
-    next()
+    return res.status(401).json({ error: 'unauthorized' })
   }
 
   // ---- health ----
@@ -361,6 +365,7 @@ export function createApp() {
         policyText: str(policyText, 40000),
         question: q,
         history: Array.isArray(history) ? history.slice(-6) : [],
+        lang: req.body?.lang === 'ms' ? 'ms' : 'en',
       }
       const response = config.usesOpenAI() ? await askPolicy(args) : localAsk(args)
       res.json({ response })
@@ -374,7 +379,7 @@ export function createApp() {
     try {
       const { markdown, analysis, lang } = req.body || {}
       if (!markdown && !analysis) return res.status(400).json({ error: 'nothing to export', code: 'nothingExport' })
-      const format = req.body?.format === 'compact' ? 'compact' : 'standard'
+      const format = ['standard', 'compact', 'itemized'].includes(req.body?.format) ? req.body.format : 'standard'
       const buf = await buildDocx({ markdown: str(markdown, 60000), analysis: analysis || null, lang: lang === 'ms' ? 'ms' : 'en', format })
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
       res.setHeader('Content-Disposition', `attachment; filename="${exportFilename()}"`)

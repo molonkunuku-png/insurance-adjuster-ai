@@ -138,6 +138,7 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
                 <select value={format} onChange={e => setFormat(e.target.value)} className="bg-transparent text-[11px] outline-none">
                   <option value="standard">{t('report.formatStandard', 'Standard')}</option>
                   <option value="compact">{t('report.formatCompact', 'Compact')}</option>
+                  <option value="itemized">{t('report.formatItemized', 'Itemized')}</option>
                 </select>
               </label>
             </div>

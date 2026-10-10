@@ -42,6 +42,7 @@ const DOCX_LANG = {
     empty: 'Nothing to export.',
     truncated: 'Note: the source draft exceeded the export size cap; content after the cap was truncated.',
     confidence: 'Confidence', needsReview: 'Needs human review',
+    dimensions: 'Damage dimensions',
   },
   ms: {
     coverage: 'Liputan', damage: 'Kerosakan', estimated: 'Anggaran nilai',
@@ -54,6 +55,7 @@ const DOCX_LANG = {
     empty: 'Tiada apa untuk dieksport.',
     truncated: 'Nota: draf sumber melebihi had saiz eksport; kandungan selebihnya dipotong.',
     confidence: 'Keyakinan', needsReview: 'Perlu semakan penyelaras tuntutan',
+    dimensions: 'Dimensi kerosakan',
   },
 }
 const pickLang = (lang) => (lang === 'ms' ? DOCX_LANG.ms : DOCX_LANG.en)
@@ -303,7 +305,8 @@ function analysisBlock(analysis, lang = 'en') {
 
 export async function buildDocx({ markdown, analysis, lang = 'en', format = 'standard' }) {
   const L = pickLang(lang)
-  const compact = format === 'compact'
+  const validFormat = format === 'compact' || format === 'itemized' ? format : 'standard'
+  const compact = validFormat === 'compact'
   const children = []
   children.push(new Paragraph({
     alignment: AlignmentType.LEFT,
@@ -334,6 +337,20 @@ export async function buildDocx({ markdown, analysis, lang = 'en', format = 'sta
       body = keep.join('\n').trim()
     }
     children.push(...markdownToDocx(body))
+    // Itemized appends detected damage dimensions as line items for estimators.
+    if (validFormat === 'itemized' && Array.isArray(analysis?.dimensions) && analysis.dimensions.length) {
+      children.push(new Paragraph({
+        spacing: { before: 240, after: 120 },
+        children: [new TextRun({ text: L.dimensions || 'Damage dimensions', bold: true })],
+      }))
+      for (const d of analysis.dimensions) {
+        children.push(new Paragraph({
+          spacing: { after: 80 },
+          indent: { left: 360 },
+          children: [new TextRun({ text: `•  ${d} — verify extent on site` })],
+        }))
+      }
+    }
     if (source.length > MAX_MARKDOWN) {
       children.push(new Paragraph({
         spacing: { before: 200 },

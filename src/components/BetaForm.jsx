@@ -41,7 +41,12 @@ export default function BetaForm() {
     setStatus('sending')
     setError('')
     try {
-      const res = await apiPost('/api/beta', { ...form, source: 'themis-beta', lang })
+      let source = 'themis-beta'
+      try {
+        const ref = new URLSearchParams(window.location.search).get('ref')
+        if (ref) source = `themis-beta:ref:${ref.slice(0, 24)}`
+      } catch { /* ignore */ }
+      const res = await apiPost('/api/beta', { ...form, source, lang })
       setGranted(Boolean(res.granted))
       setAccessUrl(res.accessUrl || null)
       setStatus('done')
