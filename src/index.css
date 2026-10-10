@@ -435,6 +435,7 @@ select.input {
   [data-print-hide] { display: none !important; }
   .print-only { display: block !important; }
   .prose-report { max-height: none; overflow: visible; }
+  .prose-report pre, .md-raw { max-height: none !important; overflow: visible !important; white-space: pre-wrap; }
   .peril-dot { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }
 

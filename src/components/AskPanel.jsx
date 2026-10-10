@@ -1,10 +1,10 @@
-import React, { useRef, useState } from 'react'
+import React, { useRef, useState, useEffect } from 'react'
 import {
   Sparkles, ArrowRight, Loader2, CheckCircle2, AlertTriangle,
   ChevronDown, FileText, Eye, EyeOff,
 } from 'lucide-react'
 import { askPolicy } from '../lib/ai'
-import { apiErrorMessage } from '../lib/api'
+import { apiErrorMessage, devLog } from '../lib/api'
 import { useI18n, useFormat } from '../i18n'
 
 /**
@@ -26,6 +26,9 @@ export default function AskPanel({ policyText }) {
   const [error, setError] = useState('')
   const [openCitations, setOpenCitations] = useState({})
   const scrollRef = useRef(null)
+  const scrollTimer = useRef(null)
+
+  useEffect(() => () => clearTimeout(scrollTimer.current), [])
 
   const canAsk = Boolean(policyText && policyText.trim())
 
@@ -44,9 +47,10 @@ export default function AskPanel({ policyText }) {
       setThread(t => [...t, { q, r }])
       setInput('')
       const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'nearest' }), 60)
+      clearTimeout(scrollTimer.current)
+      scrollTimer.current = setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'nearest' }), 60)
     } catch (err) {
-      console.error('[ask]', err)
+      devLog('[ask]', err)
       setError(apiErrorMessage(err, t, t('ask.failed', 'Ask failed — try again')))
     } finally {
       setBusy(false)
@@ -127,6 +131,17 @@ export default function AskPanel({ policyText }) {
                         ))}
                       </div>
                     )}
+                    {/* Print always carries citations: the toggle state must not redact paper output. */}
+                    {!showCites && cites.length > 0 && (
+                    <div className="print-only mt-2 space-y-2">
+                      {cites.map((c, j) => (
+                        <blockquote key={`p-${j}`} className="rounded-lg border-l-2 border-[var(--grape)] px-3 py-2 text-xs leading-relaxed">
+                          <div>"{c.quote}"</div>
+                          {c.note && <div className="mt-1 text-[11px] opacity-80">{c.note}</div>}
+                        </blockquote>
+                      ))}
+                    </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -135,7 +150,7 @@ export default function AskPanel({ policyText }) {
         })}
 
         {error && (
-          <div className="mt-4 rounded-xl border border-[var(--rose)]/40 bg-[var(--rose)]/10 px-4 py-3 text-sm text-[var(--rose)]">
+          <div role="alert" className="mt-4 rounded-xl border border-[var(--rose)]/40 bg-[var(--rose)]/10 px-4 py-3 text-sm text-[var(--rose)]">
             {error}
           </div>
         )}

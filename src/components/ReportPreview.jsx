@@ -4,6 +4,7 @@ import DOMPurify from 'dompurify'
 import { FileText, Download, Code2, Eye, Sparkles, RefreshCw, Printer, FileDown, PenLine, CheckCircle2 } from 'lucide-react'
 import Mascot from './Mascot'
 import { exportDocx } from '../lib/ai'
+import { apiErrorMessage } from '../lib/api'
 import { useI18n, useFormat } from '../i18n'
 
 function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMarkdownUpdate }) {
@@ -11,6 +12,7 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
   const { dateTime, num } = useFormat()
   const [showRaw, setShowRaw] = useState(false)
   const [busy, setBusy] = useState(null) // 'docx' | null
+  const [docxError, setDocxError] = useState('')
   const [signName, setSignName] = useState('')
   const [signNote, setSignNote] = useState('')
   const [signed, setSigned] = useState(null) // { name, at }
@@ -23,6 +25,8 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
       markdownRef.current = markdown
       setSigned(null)
       setSignNote('')
+      setSignName('')
+      setDocxError('')
     }
   }, [markdown])
 
@@ -56,6 +60,7 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
 
   const downloadDocx = async () => {
     setBusy('docx')
+    setDocxError('')
     try {
       const blob = await exportDocx({ markdown: report?.markdown, analysis: report?.analysis, lang })
       const url = URL.createObjectURL(blob)
@@ -66,7 +71,7 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
       URL.revokeObjectURL(url)
       onExported?.()
     } catch (e) {
-      alert(e.message || t('error.docxFailed', 'DOCX export failed'))
+      setDocxError(apiErrorMessage(e, t, t('error.docxFailed', 'DOCX export failed')))
     } finally {
       setBusy(null)
     }
@@ -88,8 +93,8 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
   return (
     <div className="mt-6">
       <div className="surface fade-in overflow-hidden" style={{ animationDelay: '220ms' }}>
-        <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-5 py-4">
-          <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-5 py-4">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <FileText size={16} className="text-[var(--accent)]" />
             <span className="text-sm font-semibold">{t('report.title', 'Loss report')}</span>
             <span className="badge lifecycle-reviewing">{t('report.draft', 'Draft — not the final report')}</span>
@@ -129,6 +134,11 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
               </button>
             </div>
           )}
+          {docxError && (
+            <div role="alert" className="mt-2 rounded-lg border border-[var(--danger)]/40 bg-[var(--danger-soft)] px-3 py-2 text-[11px] text-[var(--danger)]">
+              {docxError}
+            </div>
+          )}
         </div>
 
         <div className="p-5">
@@ -143,7 +153,7 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
           )}
 
           {markdown && showRaw && (
-            <pre className="max-h-[28rem] overflow-auto rounded-xl bg-[var(--bg-2)] p-4 font-mono text-xs leading-relaxed text-[var(--muted)]">
+            <pre className="md-raw max-h-[28rem] overflow-auto rounded-xl bg-[var(--bg-2)] p-4 font-mono text-xs leading-relaxed text-[var(--muted)]">
               {markdown}
             </pre>
           )}
@@ -172,8 +182,8 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
         )}
       </button>
 
-      {markdown && (
-        <div className="surface fade-in mt-4 p-5">
+      {markdown && !signed && (
+        <div className="surface fade-in mt-4 p-5" data-print-hide>
           <div className="mb-3 flex min-w-0 flex-wrap items-center gap-2 text-[var(--muted)]">
             <PenLine size={15} />
             <span className="min-w-0 text-[11px] font-semibold uppercase tracking-wider text-balance">{t('sign.title', 'Adjuster notes & sign-off')}</span>
@@ -192,6 +202,7 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
                 rows={2}
                 maxLength={2000}
                 placeholder={t('sign.notesPh', 'Adjuster comments on the draft…')}
+                aria-label={t('sign.notesPh', 'Adjuster comments on the draft…')}
                 className="w-full resize-y rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-3 py-2 text-sm text-[var(--fg)] outline-none transition placeholder:text-[var(--muted)]/60 focus:border-[var(--accent)]"
               />
               <div className="tnum text-right text-[10px] text-[var(--muted)]">{num(signNote.length)}/2000</div>

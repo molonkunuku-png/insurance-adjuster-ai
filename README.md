@@ -12,15 +12,21 @@ The browser never talks to OpenAI directly; all AI calls go through our API so t
 
 ```
 .                # React client + Vite config
-  src/           # components, lib/api.js, lib/ai.js
-  server/        # Express API (auth-free for now)
+  src/           # components, lib/api.js, lib/ai.js, lib/pdf.js, lib/sample.js
+  server/        # Express API (magic-link sessions, local + OpenAI engines)
     src/
-      index.js   # boots db + server
-      app.js     # routes: /api/health /api/beta /api/analyze /api/report
-      db.js      # pg pool + schema, in-memory fallback
-      email.js   # Resend confirmation + admin notification
-      openai.js  # vision analyze + report generation
-      config.js  # env loading
+      index.js   # boots db + server + mail worker + Telegram poll
+      app.js     # routes: /api/health /api/beta /api/analyze /api/report /api/ask /api/admin/*
+      db.js      # pg pool + schema (beta_leads, telegram_pairs), in-memory fallback
+      email.js   # Resend adapter + admin notification (templates live in templates.js)
+      mailer.js  # own SMTP client (stdlib): Gmail relay, no verified domain needed
+      queue.js   # mail task queue: retries, dead-letter, caps, breaker, sweeps
+      templates.js # EN/BM mail templates (single source of truth)
+      send.js    # provider dispatcher: Telegram → SMTP → Resend → file log
+      telegram.js # Telegram pairing + delivery (bot token only, no domain)
+      openai.js  # vision analyze + report generation (opt-in via AI_PROVIDER)
+      engine.js  # deterministic local engine (default, zero AI bills)
+      config.js  # env loading + central mail/channel knobs
 ```
 
 ## Local development
@@ -48,14 +54,24 @@ Server (`server/.env`, **secret**):
 
 | Var | Purpose |
 | --- | --- |
-| `OPENAI_API_KEY` | server-side OpenAI key |
-| `OPENAI_MODEL` | default `gpt-4o-mini` |
-| `RESEND_API_KEY` | Resend transactional email |
+| `OPENAI_API_KEY` | server-side OpenAI key (only used when `AI_PROVIDER=openai`) |
+| `AI_PROVIDER` | `local` (default, zero bills) or `openai` |
+| `RESEND_API_KEY` | Resend fallback sender (test domain reaches owner inbox only) |
 | `RESEND_FROM` | e.g. `Themis <onboarding@resend.dev>` (test) |
-| `CONTACT_EMAIL` | where beta notifications land |
-| `APP_URL` | public site URL (used in email links) |
-| `DATABASE_URL` | Render Postgres; blank = in-memory |
+| `GMAIL_USER` / `GMAIL_APP_PASSWORD` | Gmail SMTP relay — the primary sender, no verified domain needed |
+| `MAIL_FROM` / `MAIL_FROM_NAME` | sender identity for Gmail relay |
+| `TELEGRAM_BOT_TOKEN` | optional second lane (bot token only, no domain) |
+| `TELEGRAM_BOT_NAME` | bot username for t.me pairing links |
+| `BREAK_GLASS` | `1` enables emergency 5-minute login mint (default off) |
+| `QUEUE_GLOBAL_CAP` / `QUEUE_LEAD_CAP` / `QUEUE_DRAIN` | mail automation caps (50 / 3 / 3) |
+| `TOKEN_TTL_DAYS` | magic-link TTL, default `2` (48h) |
+| `SESSION_SECRET` / `ADMIN_SECRET` | required in production (≥32 chars) |
+| `CONTACT_EMAIL` | where beta notifications + daily digest land |
+| `APP_URL` / `PUBLIC_API_URL` | public site/API origins used in email links |
+| `DATABASE_URL` | Render Postgres; blank = in-memory (dev only) |
 | `CLIENT_ORIGIN` | comma-separated CORS allowlist |
+| `BETA_LIMIT` | beta cap, default `10` |
+| `DAILY_ANALYSIS_CAP` | per-lead analyses/day, default `25` |
 | `PORT` | API port |
 
 ## Deploy on Render (recommended: one Web Service)
@@ -78,6 +94,9 @@ Server (`server/.env`, **secret**):
 
 ## Known limitation
 
-Resend **test mode** delivers only to the account owner's address. To email real
-adjusters, verify a domain at `resend.com/domains` and set `RESEND_FROM` to an address
-on that domain.
+Resend **test mode** delivers only to the account owner's address. The app no
+longer depends on it: the own-SMTP engine sends via Gmail relay
+(`GMAIL_USER` + App Password, no verified domain needed), with Resend kept as
+a fallback and Telegram as an opt-in second lane. If every sender fails, the
+signup UI shows an honest status plus a fallback link instead of a fake
+"check your inbox" — see `docs/owner-checklist.md` for the operator runbook.

@@ -90,7 +90,7 @@ export default function SignInForm({ onRequestAccess }) {
         />
       </label>
 
-      {status === 'error' && <p className="text-xs text-[var(--rose)]">{error || t('error.generic')}</p>}
+      {status === 'error' && <p role="alert" className="text-xs text-[var(--rose)]">{error || t('error.generic')}</p>}
 
       <button
         type="submit"

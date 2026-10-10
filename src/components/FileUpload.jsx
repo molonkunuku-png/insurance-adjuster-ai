@@ -4,6 +4,7 @@ import {
   AlertTriangle, ScanEye, RotateCcw, ArrowRight,
 } from 'lucide-react'
 import { extractPdfText, renderPdfPages } from '../lib/pdf'
+import { devLog } from '../lib/api'
 import { sniffKind, isImageKind, MAX_IMAGE_BYTES, MAX_PDF_BYTES } from '../lib/files'
 import { useI18n, useFormat } from '../i18n'
 
@@ -133,7 +134,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
       }
     } catch (e) {
       if (stale()) return
-      console.error('[pdf] extraction failed', e)
+      devLog('[pdf] extraction failed', e)
       setProgress(null)
       onPolicyEvent?.('policyError')
       setPolicy({ status: 'error', text: '', images: [], numPages: 0, truncated: false, error: t('error.pdf.fallback', 'Failed to read PDF. Try again or use a text-based PDF.') })
@@ -166,6 +167,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
 
   const [armReset, setArmReset] = useState(false)
   const armTimer = useRef(null)
+  useEffect(() => () => clearTimeout(armTimer.current), [])
   const reset = () => {
     setFiles({ policyPdf: null, damageImages: [] })
     setPolicy({ status: 'idle', text: '', images: [], numPages: 0, truncated: false, error: '' })
@@ -227,11 +229,15 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
       }`}
     >
       <div className="grid gap-4 md:grid-cols-[1.1fr_1fr]">
-        {/* Policy PDF */}
-        <button
-          type="button"
+        {/* Policy PDF — a div acting as a button (a nested <button> for
+            Replace inside a <button> would be invalid HTML). */}
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label={t('upload.dropPdf', 'Drop policy PDF')}
           onClick={() => !pdfBusy && pdfInput.current?.click()}
-          className={`group flex min-h-[190px] flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 text-center transition ${
+          onKeyDown={e => { if (!pdfBusy && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); pdfInput.current?.click() } }}
+          className={`group flex min-h-[190px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 text-center transition ${
             files.policyPdf
               ? policy.status === 'error'
                 ? 'border-[var(--danger)] bg-[var(--danger-soft)]'
@@ -292,17 +298,15 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
           )}
 
           {files.policyPdf && !pdfBusy && (
-            <span
-              role="button"
-              tabIndex={0}
+            <button
+              type="button"
               onClick={clearPdf}
-              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') clearPdf(e) }}
               className="mt-2 inline-flex items-center gap-1 rounded-lg border border-[var(--line)] bg-[var(--bg-2)] px-2 py-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--danger)]"
             >
               <RotateCcw size={11} /> {t('upload.replace', 'Replace')}
-            </span>
+            </button>
           )}
-        </button>
+        </div>
 
         {/* Damage images */}
         <div className={`group flex min-h-[190px] flex-col rounded-2xl border-2 border-dashed p-3 transition-colors ${

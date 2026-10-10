@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   ShieldCheck, Zap, ScanText, Calculator, FileText, Sun, Moon, MoonStar,
   Contrast, LogOut, ChevronDown, ScanEye, DollarSign, ListChecks,
   AlertTriangle, CheckCircle2, Clock, Lock, EyeOff, History, Flame,
-  Wind, CloudHail, Waves, Droplet, Mountain, Sparkles, X, ShieldAlert, Snowflake,
+  Wind, CloudHail, Waves, Droplet, Mountain, Sparkles, X, ShieldAlert, Snowflake, Send,
 } from 'lucide-react'
 import FileUpload from './components/FileUpload'
 import ReportPreview from './components/ReportPreview'
@@ -12,7 +12,7 @@ import GateView from './components/GateView'
 import Mascot from './components/Mascot'
 import AskPanel from './components/AskPanel'
 import { analyzeDamageAndPolicy, generateReport } from './lib/ai'
-import { apiGet, apiPost, apiErrorMessage } from './lib/api'
+import { apiGet, apiPost, apiErrorMessage, devLog } from './lib/api'
 import { I18nProvider, useI18n, useFormat, LANGS } from './i18n'
 import { SAMPLE_POLICY, SAMPLE_NOTES, makeSampleImages } from './lib/sample'
 
@@ -81,7 +81,7 @@ function ThemeToggle({ theme, onSelect }) {
               key={x.id}
               role="menuitemradio"
               aria-checked={x.id === theme}
-              onClick={() => { onSelect(x.id); setOpen(false) }}
+              onClick={() => { onSelect(x.id); setOpen(false); btnRef.current?.focus() }}
               className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] transition ${
                 x.id === theme ? 'bg-[var(--bg-2)] text-[var(--fg)]' : 'text-[var(--muted)] hover:text-[var(--fg)]'
               }`}
@@ -91,6 +91,71 @@ function ThemeToggle({ theme, onSelect }) {
               {x.id === theme && <CheckCircle2 size={13} className="ml-auto text-[var(--accent)]" />}
             </button>
           ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TelegramPair() {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const [code, setCode] = useState(null)
+  const [bot, setBot] = useState(null)
+  const [dormant, setDormant] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open ])
+
+  const load = async () => {
+    setOpen(o => !o)
+    if (code || dormant || failed) return
+    try {
+      const r = await apiGet('/api/telegram/pair')
+      setCode(r.code)
+      setBot(r.bot || null)
+    } catch (e) {
+      if (e?.data?.code === 'telegramDisabled') setDormant(true)
+      else setFailed(true)
+    }
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={load}
+        aria-label={t('tg.title', 'Link Telegram')}
+        title={t('tg.title', 'Link Telegram')}
+        className="flex h-9 items-center gap-1.5 rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-2.5 text-[var(--muted)] transition hover:text-[var(--fg)] hover:border-[var(--accent)]"
+      >
+        <Send size={16} />
+      </button>
+      {open && (
+        <div className="surface absolute right-0 z-30 mt-2 w-64 p-4">
+          <div className="text-sm font-semibold">{t('tg.title', 'Link Telegram')}</div>
+          {dormant ? (
+            <p className="mt-1 text-xs text-[var(--muted)]">{t('tg.dormant', 'Telegram channel is not configured yet')}</p>
+          ) : failed ? (
+            <p className="mt-1 text-xs text-[var(--muted)]">{t('tg.pairFail', 'Pairing unavailable right now')}</p>
+          ) : !code ? (
+            <p className="mt-1 text-xs text-[var(--muted)]">…</p>
+          ) : (
+            <>
+              <p className="tnum mt-2 rounded-lg bg-[var(--bg-2)] px-3 py-2 text-center text-lg font-bold tracking-[0.2em]">{code}</p>
+              <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">{t('tg.hint', 'Send /start <code> to the bot to link this account')}</p>
+              {bot && (
+                <a href={`https://t.me/${bot}`} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[var(--accent)] underline">
+                  {t('tg.openBot', 'Open the bot')}
+                </a>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>
@@ -151,7 +216,7 @@ function StatCard({ label, value, tint, Icon, delay }) {
         <span style={{ color: tint }} className="shrink-0"><Icon size={15} /></span>
         <span className="min-w-0 flex-1 break-words text-[11px] font-semibold uppercase leading-snug tracking-wider">{label}</span>
       </div>
-      <div className="tnum text-sm leading-relaxed text-[var(--fg)]">{value || '—'}</div>
+      <div className="tnum break-words text-sm leading-relaxed text-[var(--fg)] [overflow-wrap:anywhere]">{value || '—'}</div>
     </div>
   )
 }
@@ -201,12 +266,15 @@ function App() {
   })
   const [uploadKey, setUploadKey] = useState(0)
   const [armDiscard, setArmDiscard] = useState(false)
+  const armTimer = useRef(null)
   const abortRef = useRef(null)
+
+  useEffect(() => () => clearTimeout(armTimer.current), [])
 
   const logEvent = (ev) => setEvents(prev => [...prev, { ev, at: Date.now() }])
 
   const lastSnapJson = useRef('')
-  const persistSnap = (s) => {
+  const persistSnap = useCallback((s) => {
     const content = JSON.stringify({ n: s.notes, p: s.policy, d: s.damageImages })
     if (content === lastSnapJson.current) return
     lastSnapJson.current = content
@@ -220,13 +288,14 @@ function App() {
       }
       localStorage.setItem('themis-snap', JSON.stringify(slim))
     } catch { /* quota or privacy mode — session-only snapshot still works */ }
-  }
+  }, [])
 
   // FileUpload only exists while step === 'upload' (UploadView unmounts
   // otherwise), so snapshots arriving here are always from the live form.
-  const handleSnap = (s) => {
+  // Memoized: FileUpload's debounced emit must not reschedule on App renders.
+  const handleSnap = useCallback((s) => {
     persistSnap(s)
-  }
+  }, [persistSnap])
 
   const snapIsEmpty = (s) =>
     !s || (!s.notes?.trim() && !s.policy?.fileName && !s.policy?.text && !(s.policy?.images?.length) && !(s.damageImages?.length))
@@ -310,7 +379,7 @@ function App() {
         setStep('upload')
         return
       }
-      console.error(e)
+      devLog(e)
       setAppError(apiErrorMessage(e, t, t('error.analysisFailed', 'AI analysis failed')))
       setStep('upload')
     } finally {
@@ -342,7 +411,7 @@ function App() {
       setReport(r => ({ ...r, markdown }))
       logEvent('report')
     } catch (e) {
-      console.error(e)
+      devLog(e)
       setAppError(apiErrorMessage(e, t, t('error.reportFailed', 'Report generation failed')))
     } finally {
       setLoading(false)
@@ -351,7 +420,7 @@ function App() {
 
   return (
     <div className="relative min-h-screen">
-      <header className="sticky top-0 z-20 border-b border-[var(--line)] bg-[color-mix(in_srgb,var(--bg)_82%,transparent)] backdrop-blur-xl">
+      <header data-print-hide className="sticky top-0 z-20 border-b border-[var(--line)] bg-[color-mix(in_srgb,var(--bg)_82%,transparent)] backdrop-blur-xl">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3.5">
           <Brand />
           <div className="flex items-center gap-2" data-print-hide>
@@ -368,6 +437,7 @@ function App() {
             )}
             <ThemeToggle theme={theme} onSelect={setTheme} />
             <LangToggle />
+            {auth === 'in' && <TelegramPair />}
           </div>
         </div>
       </header>
@@ -404,7 +474,8 @@ function App() {
                 onDiscardResume={() => {
                   if (!armDiscard) {
                     setArmDiscard(true)
-                    setTimeout(() => setArmDiscard(false), 3000)
+                    clearTimeout(armTimer.current)
+                    armTimer.current = setTimeout(() => setArmDiscard(false), 3000)
                     return
                   }
                   setPendingResume(null)
@@ -490,10 +561,10 @@ function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, onPolicyEvent
         <FileUpload key={uploadKey} initial={snap} onSnapshot={onSnap} onPolicyEvent={onPolicyEvent} onUpload={onUpload} />
         <button
           onClick={onSample}
-          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--line)] px-5 py-2.5 text-sm text-[var(--muted)] transition hover:border-[var(--grape)] hover:text-[var(--grape)]"
+          className="mt-3 inline-flex w-full flex-wrap items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--line)] px-5 py-2.5 text-center text-sm text-[var(--muted)] transition hover:border-[var(--grape)] hover:text-[var(--grape)]"
         >
-          <Sparkles size={15} /> {t('sample.button', 'Try a sample claim')}
-          <span className="text-xs opacity-70">{t('sample.sub', 'No uploads needed — see a full draft in seconds.')}</span>
+          <span className="inline-flex min-w-0 items-center gap-2 break-words"><Sparkles size={15} /> {t('sample.button', 'Try a sample claim')}</span>
+          <span className="min-w-0 text-xs opacity-70 break-words">{t('sample.sub', 'No uploads needed — see a full draft in seconds.')}</span>
         </button>
       </div>
 

@@ -67,3 +67,27 @@ Satu muka. Kalau tiada di sini, bukan tugas anda.
       Tukar App Password setiap 90 hari (canary selepas itu).
 - [ ] Review `GET /api/admin/leads` — revoke stale test addresses.
       Semak senarai lead — revoke alamat ujian lama.
+
+## 7. When the waitlist fills (BETA_LIMIT runbook)
+
+- [ ] Count: `GET /api/admin/leads` returns `counts: {pending, invited, active}`.
+      Kira: respons mengandungi counts.
+- [ ] Revoking someone auto-promotes the oldest `pending` lead if under cap.
+      Revoke sesiapa mempromosikan lead `pending` tertua jika bawah had.
+- [ ] To grow: raise `BETA_LIMIT` in Render env (restart), then invite from
+      the pending list oldest-first via `POST /api/admin/invite`.
+      Untuk berkembang: naikkan `BETA_LIMIT`, kemudian jemput dari senarai
+      menunggu yang paling lama dahulu.
+- [ ] Never raise the cap silently — note the date + reason in git or mail.
+      Jangan naikkan had secara senyap — catat tarikh + sebab.
+
+## 8. Backups (until managed backups are confirmed)
+
+- [ ] Confirm Render Postgres backup schedule in the dashboard (daily on
+      paid tiers; free tier has none — export manually).
+      Sahkan jadual backup Postgres dalam dashboard.
+- [ ] Monthly: `GET /api/admin/leads?limit=200` → save the JSON somewhere
+      safe (contains names + work emails only, no claim content).
+      Bulanan: simpan JSON lead di tempat selamat.
+- [ ] Record one restore drill (date + result) before trusting backups.
+      Rekod satu latihan restore sebelum mempercayai backup.

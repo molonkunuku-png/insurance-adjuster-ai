@@ -29,6 +29,13 @@ export function apiPost(path, body, { signal } = {}) {
   })
 }
 
+/** Client-only debug logging: silent in production builds. */
+export function devLog(...args) {
+  try {
+    if (import.meta.env?.DEV) console.error(...args)
+  } catch { /* non-Vite runtimes */ }
+}
+
 /** Map server error codes (code: 'badEmail', …) to translated strings. */
 export function apiErrorMessage(err, t, fallback) {
   const code = err?.data?.code
@@ -46,7 +53,10 @@ export async function apiPostBlob(path, body) {
   })
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
-    throw new Error(data.error || `Request failed (${res.status})`)
+    const err = new Error(data.error || `Request failed (${res.status})`)
+    err.status = res.status
+    err.data = data
+    throw err
   }
   return res.blob()
 }

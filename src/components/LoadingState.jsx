@@ -31,8 +31,8 @@ function LoadingState({ onCancel }) {
       </div>
 
       <h2 className="mt-6 text-lg font-semibold">{t('loading.heading', 'Assessing your claim')}</h2>
-      <p className="mt-1 text-sm text-[var(--muted)]">{STEPS[active]}</p>
-      <p className="tnum mt-1 text-xs text-[var(--muted)]">{num(Math.floor((now - startedAt) / 1000))} {t('loading.sec', 'sec')} {t('loading.elapsed', 'elapsed')}</p>
+      <p aria-hidden="true" className="mt-1 text-sm text-[var(--muted)]">{STEPS[active]}</p>
+      <p aria-hidden="true" className="tnum mt-1 text-xs text-[var(--muted)]">{num(Math.floor((now - startedAt) / 1000))} {t('loading.sec', 'sec')} {t('loading.elapsed', 'elapsed')}</p>
 
       {onCancel && (
         <button

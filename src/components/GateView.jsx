@@ -29,7 +29,9 @@ export default function GateView({ accessStatus, mode = 'signup', onModeChange }
     expired: 'gate.errExpired',
     error: 'gate.errFailed',
   }
-  const msgKey = accessStatus ? MESSAGES[accessStatus] : null
+  const msgKey = accessStatus && MESSAGES[accessStatus]
+    ? MESSAGES[accessStatus]
+    : accessStatus ? 'gate.errUnknown' : null
   const signin = mode === 'signin'
   return (
     <div className="fade-in mx-auto max-w-md pt-4 text-center">
@@ -47,7 +49,7 @@ export default function GateView({ accessStatus, mode = 'signup', onModeChange }
 
       {msgKey && (
         <div role="alert" className="mt-5 rounded-xl border border-[var(--rose)]/40 bg-[var(--rose)]/10 px-4 py-3 text-sm text-[var(--rose)]">
-          {t(msgKey)}
+          {t(msgKey, t('gate.errFailed'))}
         </div>
       )}
 

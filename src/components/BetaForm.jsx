@@ -154,7 +154,7 @@ export default function BetaForm() {
         </div>
 
         {status === 'error' && (
-          <p className="text-xs text-[var(--rose)]">{error || t('error.generic')}</p>
+          <p role="alert" className="text-xs text-[var(--rose)]">{error || t('error.generic')}</p>
         )}
 
         <button
