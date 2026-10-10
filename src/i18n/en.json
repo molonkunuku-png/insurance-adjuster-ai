@@ -123,6 +123,7 @@
   "result.confLow": "Low confidence",
   "result.needsReview": "Needs human review",
   "report.title": "Loss report",
+  "report.draft": "Draft — not the final report",
   "report.generated": "Generated",
   "report.preview": "Preview",
   "report.markdown": "Markdown",

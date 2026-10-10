@@ -59,6 +59,7 @@ function ReportPreview({ report, onGenerate, loading }) {
           <div className="flex items-center gap-2">
             <FileText size={16} className="text-[var(--accent)]" />
             <span className="text-sm font-semibold">{t('report.title', 'Loss report')}</span>
+            <span className="badge lifecycle-reviewing">{t('report.draft', 'Draft — not the final report')}</span>
             {markdown && (
               <span className="inline-flex items-center gap-1 rounded-full bg-[var(--success-soft)] px-2 py-0.5 text-[10px] font-medium text-[var(--success)]">
                 <Sparkles size={10} /> {t('report.generated', 'Generated')}
