@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { apiPost } from '../lib/api'
 import { useI18n } from '../i18n'
 
@@ -18,7 +18,14 @@ export default function BetaForm() {
   const [accessUrl, setAccessUrl] = useState(null)
   const [error, setError] = useState('')
   const [resent, setResent] = useState(false)
+  const [cooldown, setCooldown] = useState(0)
   const valid = form.name.trim() && /\S+@\S+\.\S+/.test(form.email)
+
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const id = setTimeout(() => setCooldown(c => Math.max(0, c - 1)), 1000)
+    return () => clearTimeout(id)
+  }, [cooldown])
 
   const submit = async (e) => {
     e.preventDefault()
@@ -37,6 +44,7 @@ export default function BetaForm() {
   }
 
   const resend = async () => {
+    if (cooldown > 0) return
     setResent(false)
     setError('')
     try {
@@ -44,6 +52,10 @@ export default function BetaForm() {
       if (res.accessUrl) setAccessUrl(res.accessUrl)
       setResent(true)
     } catch (err) {
+      if (err?.status === 429 && err?.data?.retryAfter) {
+        setCooldown(Number(err.data.retryAfter) || 60)
+        return
+      }
       setError(err.message || t('error.generic'))
     }
   }
@@ -95,9 +107,12 @@ export default function BetaForm() {
           <>
             <button
               onClick={resend}
-              className="mt-4 text-xs text-[var(--muted)] underline transition hover:text-[var(--accent)]"
+              disabled={cooldown > 0}
+              className="mt-4 text-xs text-[var(--muted)] underline transition hover:text-[var(--accent)] disabled:no-underline disabled:opacity-60"
             >
-              {resent ? t('beta.resent', 'Access link resent ✓') : t('beta.resend', "Didn't get it? Resend")}
+              {cooldown > 0
+                ? t('resend.wait', 'Wait {n}s to resend').replace('{n}', cooldown)
+                : resent ? t('beta.resent', 'Access link resent ✓') : t('beta.resend', "Didn't get it? Resend")}
             </button>
             {error && (
               <p className="mt-2 text-xs text-[var(--rose)]">{error}</p>

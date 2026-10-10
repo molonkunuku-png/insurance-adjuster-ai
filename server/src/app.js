@@ -9,10 +9,10 @@ import { config, isProd } from './config.js'
 import {
   saveBetaLead, listBetaLeads, dbMode, countInvited, approveLead,
   findLeadByTokenHash, findLeadByEmail, markLogin, revokeLead,
-  countByStatus,
+  countByStatus, findExpiringLeads,
 } from './db.js'
 import {
-  sendBetaConfirmation, sendBetaAccess, sendAdminNotification, resendConfigured,
+  sendBetaConfirmation, sendAdminNotification, resendConfigured,
 } from './email.js'
 import { analyzeDamageAndPolicy, generateReport, askPolicy } from './openai.js'
 import { localAnalyze, localAsk, localReport } from './engine.js'
@@ -21,6 +21,12 @@ import {
   generateAccessToken, hashToken, createSession, verifySession,
   parseCookies, sessionCookie, clearSessionCookie, safeEqual, cookieName,
 } from './auth.js'
+import {
+  enqueue, registerSweep, queueStatus, deadList, replayJob,
+  suppress, unsuppress, suppressionList, eventLog,
+} from './queue.js'
+import { trySendNow } from './send.js'
+import { issuePairingCode } from './telegram.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distDir = join(__dirname, '..', '..', 'dist')
@@ -59,8 +65,17 @@ export function createApp() {
   const betaLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false })
   const adminLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false })
 
+  // Resend cooldown: one link email per address per 60s (enforced + visible).
+  const resendAt = new Map() // email -> timestamp ms
   // In-memory daily analysis tally per lead (single-instance beta discipline).
   const dailyUse = new Map() // leadId -> { day: 'YYYY-MM-DD', n: number }
+  function resendCooldown(email) {
+    const last = resendAt.get(email) || 0
+    const wait = 60000 - (Date.now() - last)
+    if (wait > 0) return Math.ceil(wait / 1000)
+    resendAt.set(email, Date.now())
+    return 0
+  }
   function checkDailyCap(leadId) {
     const today = new Date().toISOString().slice(0, 10)
     const rec = dailyUse.get(leadId)
@@ -164,7 +179,7 @@ export function createApp() {
       const invitedSoFar = await countInvited()
       const grantAccess = invitedSoFar < config.betaLimit
 
-      let accessSent = 'skipped'
+      let mail = { status: 'skipped', provider: null, error: null }
       let waitlistSent = 'skipped'
       let notified = 'skipped'
       let accessUrl = null
@@ -172,8 +187,10 @@ export function createApp() {
       if (resendConfigured()) {
         if (grantAccess) {
           const r = await grantAndSend(clean)
-          accessSent = r.emailSent ? 'sent' : `failed: ${r.error}`
-          // Configured mailer: never hand the magic link back in JSON.
+          mail = { status: r.emailSent ? 'sent' : (r.queued ? 'queued' : 'failed'), provider: r.provider || null, error: r.error || null }
+          // Honest rule (lockout postmortem): the link is returned whenever
+          // delivery did NOT confirm — never a silent "check your inbox".
+          if (!r.emailSent) accessUrl = r.accessUrl
         } else {
           waitlistSent = await sendBetaConfirmation(clean).then(() => 'sent').catch(e => `failed: ${e.message}`)
         }
@@ -182,14 +199,15 @@ export function createApp() {
         if (grantAccess) {
           const r = await grantAndSend(clean)
           accessUrl = r.accessUrl
+          mail = { status: 'failed', provider: null, error: 'no mailer configured (dev fallback link shown)' }
         }
         console.warn('[email] RESEND_API_KEY not set — skipping emails')
       }
 
-      console.log(`[beta] ${created ? 'created' : 'updated'} id=${lead.id} grant=${grantAccess} access=${accessSent} waitlist=${waitlistSent} notify=${notified}`)
+      console.log(`[beta] ${created ? 'created' : 'updated'} id=${lead.id} grant=${grantAccess} mail=${mail.status} waitlist=${waitlistSent} notify=${notified}`)
       res.status(created ? 201 : 200).json({
         ok: true, granted: grantAccess,
-        access: accessSent, waitlist: waitlistSent, notified,
+        mail, access: mail.status, waitlist: waitlistSent, notified,
         ...(accessUrl ? { accessUrl } : {}),
       })
     } catch (e) {
@@ -204,21 +222,29 @@ export function createApp() {
       if (!isEmail(email)) {
         return res.status(400).json({ error: 'A valid email is required' })
       }
+      const wait = resendCooldown(email)
+      if (wait > 0) {
+        return res.status(429).json({ error: 'Resend cooldown active', retryAfter: wait })
+      }
       const lead = await findLeadByEmail(email)
       let accessUrl = null
+      let mail = { status: 'skipped', provider: null, error: null }
       if (lead && (lead.status === 'invited' || lead.status === 'active')) {
         if (resendConfigured()) {
-          await grantAndSend({ name: lead.name, email }).catch(() => {})
+          const r = await grantAndSend({ name: lead.name, email })
+          mail = { status: r.emailSent ? 'sent' : (r.queued ? 'queued' : 'failed'), provider: r.provider || null, error: r.error || null }
+          if (!r.emailSent) accessUrl = r.accessUrl
         } else {
           // No mailer (local dev): mint + return the link so sign-in works offline.
           const r = await grantAndSend({ name: lead.name, email })
           accessUrl = r.accessUrl
+          mail = { status: 'failed', provider: null, error: 'no mailer configured (dev fallback link shown)' }
         }
       } else if (lead && resendConfigured()) {
         await sendBetaConfirmation({ name: lead.name, email }).catch(() => {})
       }
       // Always respond the same (don't reveal whether the email exists)
-      res.json({ ok: true, ...(accessUrl ? { accessUrl } : {}) })
+      res.json({ ok: true, mail, ...(accessUrl ? { accessUrl } : {}) })
     } catch (e) {
       console.error('[beta/resend] error:', e)
       res.status(500).json({ error: 'Could not resend' })
@@ -345,6 +371,83 @@ export function createApp() {
     }
   })
 
+  // ---- break-glass + mail ops + Telegram pairing ----
+  // Emergency one-time login URL. Disabled unless BREAK_GLASS=1, 5-minute
+  // TTL, single-use (markLogin nulls on verify), fully audited. This is the
+  // H0 answer to "no email arrives and no DNS can change".
+  app.post('/api/admin/mint', adminLimiter, requireAdmin, async (req, res) => {
+    if (process.env.BREAK_GLASS !== '1') {
+      return res.status(403).json({ error: 'Break-glass minting is disabled (set BREAK_GLASS=1 to enable)' })
+    }
+    try {
+      const email = str(req.body?.email, 200).toLowerCase()
+      if (!isEmail(email)) return res.status(400).json({ error: 'A valid email is required' })
+      const lead = await findLeadByEmail(email)
+      if (!lead) return res.status(404).json({ error: 'Lead not found' })
+      const token = generateAccessToken()
+      await approveLead({ email, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 5 * 60000) })
+      const accessUrl = `${config.publicApiUrl}/api/access/verify?token=${encodeURIComponent(token)}`
+      console.log(`[admin] break-glass mint email=${email} by=${req.ip}`)
+      res.json({ ok: true, accessUrl, expiresIn: 300 })
+    } catch (e) {
+      console.error('[admin/mint] error:', e.message)
+      res.status(500).json({ error: 'Mint failed' })
+    }
+  })
+
+  app.get('/api/admin/mail', adminLimiter, requireAdmin, (_req, res) => {
+    res.json({ status: queueStatus(), dead: deadList(), suppression: suppressionList(), events: eventLog().slice(-50) })
+  })
+
+  app.post('/api/admin/mail/replay', adminLimiter, requireAdmin, (req, res) => {
+    const job = replayJob(req.body?.id)
+    if (!job) return res.status(404).json({ error: 'Dead job not found' })
+    console.log(`[admin] mail replay id=${job.id} by=${req.ip}`)
+    res.json({ ok: true, job })
+  })
+
+  app.post('/api/admin/mail/suppress', adminLimiter, requireAdmin, (req, res) => {
+    const email = str(req.body?.email, 200).toLowerCase()
+    if (!isEmail(email)) return res.status(400).json({ error: 'A valid email is required' })
+    if (req.body?.clear) {
+      unsuppress(email)
+      console.log(`[admin] unsuppress email=${email} by=${req.ip}`)
+    } else {
+      suppress(email, str(req.body?.reason, 120) || 'manual')
+      console.log(`[admin] suppress email=${email} by=${req.ip}`)
+    }
+    res.json({ ok: true })
+  })
+
+  // Telegram pairing code for the signed-in lead (bot token required server-side).
+  app.get('/api/telegram/pair', requireAuth, async (req, res) => {
+    try {
+      const code = await issuePairingCode(req.session.email)
+      res.json({ ok: true, code })
+    } catch {
+      res.status(500).json({ error: 'Pairing unavailable' })
+    }
+  })
+
+  // Hourly expiry-nudge sweep: fresh single-use links for links dying <24h out.
+  registerSweep('expiry-nudge', 3600000, async () => {
+    const leads = await findExpiringLeads(24)
+    for (const lead of leads.slice(0, 20)) {
+      try {
+        const token = generateAccessToken()
+        await approveLead({ email: lead.email, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + config.tokenTtlDays * 86400000) })
+        const accessUrl = `${config.publicApiUrl}/api/access/verify?token=${encodeURIComponent(token)}`
+        enqueue({
+          type: 'nudge', to: lead.email,
+          payload: { name: lead.name, accessUrl, ttl: '24 hours', lang: 'en' },
+          dedupeKey: `nudge:${String(lead.email).toLowerCase()}:${new Date().toISOString().slice(0, 10)}`,
+        })
+      } catch (e) {
+        console.warn('[sweep:nudge] failed for lead:', lead.id, e.message)
+      }
+    }
+  })
+
   // ---- optional static client (single-service deploy) ----
   if (existsSync(distDir)) {
     app.use(express.static(distDir))
@@ -366,24 +469,37 @@ export function createApp() {
 }
 
 /**
- * Mint an access token, mark the lead invited, email the magic link.
- * Always resolves. On email failure it returns emailSent:false + accessUrl and
- * logs the link so the developer can sign in from the server logs (test mode).
+ * Mint an access token, mark the lead invited, deliver the magic link.
+ *
+ * Delivery runs through the mail queue (Gmail own-SMTP → Resend →
+ * file-log). For honest request-time status we attempt one synchronous send
+ * (8s budget); on failure the job is enqueued for background retries and the
+ * caller decides link visibility (failed ⇒ surfaced, never silent).
  */
-async function grantAndSend({ name, email }) {
+async function grantAndSend({ name, email, lang = 'en' }) {
   const token = generateAccessToken()
   const expiresAt = new Date(Date.now() + config.tokenTtlDays * 86400000)
   await approveLead({ email, tokenHash: hashToken(token), expiresAt })
   // PUBLIC_API_URL -> APP_URL -> default: points the magic link at the API origin.
   const accessUrl = `${config.publicApiUrl}/api/access/verify?token=${encodeURIComponent(token)}`
+  const ttl = config.tokenTtlDays >= 1 ? `${config.tokenTtlDays} days` : `${Math.round(config.tokenTtlDays * 24)} hours`
+  const payload = { name, accessUrl, ttl, lang }
   try {
-    await sendBetaAccess({ name, email, accessUrl })
-    return { accessUrl, emailSent: true, error: null }
+    const r = await trySendNow({ id: `direct-${token.slice(0, 8)}`, type: 'access', to: email, payload, attempts: 0 })
+    const sent = r.provider !== 'filelog'
+    if (!sent) {
+      enqueue({ type: 'access', to: email, payload, dedupeKey: `invite:${email.toLowerCase()}:${new Date().toISOString().slice(0, 10)}` })
+    }
+    return { accessUrl, emailSent: sent, queued: !sent, provider: r.provider, error: sent ? null : 'no configured sender delivered (dev/file fallback shown)' }
   } catch (e) {
-    // Log the failure, never the link: the URL is only returned to callers
-    // that are explicitly allowed to receive it (local dev, no mailer).
-    console.warn(`[email] magic-link email FAILED for lead id lookup — see errors table`)
-    return { accessUrl, emailSent: false, error: e.message }
+    let queued = false
+    try {
+      enqueue({ type: 'access', to: email, payload, dedupeKey: `invite:${email.toLowerCase()}:${new Date().toISOString().slice(0, 10)}` })
+      queued = true
+    } catch (qe) {
+      console.warn('[queue] enqueue failed:', qe.message)
+    }
+    return { accessUrl, emailSent: false, queued, provider: null, error: String(e?.message || e).slice(0, 200) }
   }
 }
 

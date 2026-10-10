@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { apiPost } from '../lib/api'
 import { useI18n } from '../i18n'
 
@@ -8,11 +8,18 @@ export default function SignInForm({ onRequestAccess }) {
   const [status, setStatus] = useState('idle') // idle | sending | done | error
   const [accessUrl, setAccessUrl] = useState(null)
   const [error, setError] = useState('')
+  const [cooldown, setCooldown] = useState(0)
   const valid = /\S+@\S+\.\S+/.test(email)
+
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const id = setTimeout(() => setCooldown(c => Math.max(0, c - 1)), 1000)
+    return () => clearTimeout(id)
+  }, [cooldown])
 
   const submit = async (e) => {
     e.preventDefault()
-    if (!valid) return
+    if (!valid || cooldown > 0) return
     setStatus('sending')
     setError('')
     try {
@@ -20,6 +27,11 @@ export default function SignInForm({ onRequestAccess }) {
       setAccessUrl(res.accessUrl || null)
       setStatus('done')
     } catch (err) {
+      if (err?.status === 429 && err?.data?.retryAfter) {
+        setCooldown(Number(err.data.retryAfter) || 60)
+        setStatus('idle')
+        return
+      }
       setError(err.message || t('error.generic'))
       setStatus('error')
     }
@@ -82,10 +94,12 @@ export default function SignInForm({ onRequestAccess }) {
 
       <button
         type="submit"
-        disabled={!valid || status === 'sending'}
+        disabled={!valid || status === 'sending' || cooldown > 0}
         className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] px-5 py-2.5 text-sm font-semibold text-[#0b0d17] transition enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {status === 'sending' ? t('signin.sending', 'Sending…') : t('signin.sendLink', 'Email me a sign-in link')}
+        {status === 'sending' ? t('signin.sending', 'Sending…')
+          : cooldown > 0 ? t('resend.wait', 'Wait {n}s to resend').replace('{n}', cooldown)
+          : t('signin.sendLink', 'Email me a sign-in link')}
       </button>
       <p className="text-center text-[11px] text-[var(--muted)]">
         {t('signin.sameEmail', 'Use the same email you originally signed up with.')}

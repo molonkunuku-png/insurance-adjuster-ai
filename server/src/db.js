@@ -212,6 +212,21 @@ export async function findLeadByEmail(email) {
   return res.rows[0] || null
 }
 
+export async function findExpiringLeads(withinHours = 24) {
+  const cutoff = new Date(Date.now() + withinHours * 3600000)
+  if (useMemory) {
+    return memory.betaLeads.filter(l =>
+      l.status === 'invited' && l.accessTokenHash && l.tokenExpiresAt && new Date(l.tokenExpiresAt) < cutoff
+    )
+  }
+  const res = await pool.query(
+    `SELECT id, name, email, status, token_expires_at FROM beta_leads
+     WHERE status = 'invited' AND access_token_hash IS NOT NULL AND token_expires_at < $1`,
+    [cutoff.toISOString()]
+  )
+  return res.rows
+}
+
 export async function markLogin(id) {
   if (useMemory) {
     const lead = memory.betaLeads.find(l => l.id === id)
