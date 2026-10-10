@@ -190,6 +190,7 @@ export function createApp() {
       if (imgs.length > 12) return res.status(400).json({ error: 'Too many images (max 12)' })
       for (const img of imgs) {
         if (!img?.base64 || !img?.type) return res.status(400).json({ error: 'Malformed image payload' })
+        if (!looksLikeImage(img.base64)) return res.status(400).json({ error: 'Unsupported image encoding (JPEG, PNG, GIF, or WebP required)' })
       }
       const policy = str(policyText, 20000)
       // With no key we run fully on the deterministic local engine — no AI bills.
@@ -324,4 +325,23 @@ async function grantAndSend({ name, email }) {
 function str(v, max) {
   if (v === undefined || v === null) return ''
   return String(v).trim().slice(0, max)
+}
+
+// Magic-byte allowlist for data-URL image uploads: JPEG, PNG, GIF, WebP.
+// Runs before any downstream use so mislabeled uploads fail fast.
+function looksLikeImage(dataUrlOrB64) {
+  try {
+    const b64 = String(dataUrlOrB64 || '').includes(',')
+      ? String(dataUrlOrB64).split(',').slice(1).join(',')
+      : String(dataUrlOrB64 || '')
+    const head = Buffer.from(b64.slice(0, 24), 'base64')
+    if (head.length < 4) return false
+    if (head[0] === 0xFF && head[1] === 0xD8 && head[2] === 0xFF) return true // JPEG
+    if (head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4E && head[3] === 0x47) return true // PNG
+    if (head[0] === 0x47 && head[1] === 0x49 && head[2] === 0x46) return true // GIF
+    if (head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46) return true // WebP (RIFF)
+    return false
+  } catch {
+    return false
+  }
 }

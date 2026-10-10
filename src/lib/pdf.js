@@ -65,14 +65,35 @@ function loadPdfjs() {
   return pdfjsPromise
 }
 
-async function open(file) {
+async function open(source) {
   const { getDocument } = await loadPdfjs()
-  const data = new Uint8Array(await file.arrayBuffer())
+  const data = source instanceof Uint8Array
+    ? source
+    : new Uint8Array(await source.arrayBuffer())
   return getDocument({ data }).promise
 }
 
-export async function extractPdfText(file, { maxPages = TEXT_PAGE_CAP } = {}) {
-  const pdf = await open(file)
+// Byte-level read with determinate progress (FileReader.onprogress).
+// Falls back to arrayBuffer() where FileReader is unavailable (tests).
+export function readBytesWithProgress(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    if (typeof FileReader === 'undefined' || !onProgress) {
+      file.arrayBuffer().then(b => resolve(new Uint8Array(b)), reject)
+      return
+    }
+    const reader = new FileReader()
+    reader.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(e.loaded / e.total)
+    }
+    reader.onload = () => resolve(new Uint8Array(reader.result))
+    reader.onerror = () => reject(reader.error || new Error('Read failed'))
+    reader.readAsArrayBuffer(file)
+  })
+}
+
+export async function extractPdfText(file, { maxPages = TEXT_PAGE_CAP, onProgress = null, data = null } = {}) {
+  const bytes = data || await readBytesWithProgress(file, onProgress ? (f) => onProgress(f * 0.15) : null)
+  const pdf = await open(bytes)
   const pagesToRead = Math.min(pdf.numPages, maxPages)
   const chunks = []
   try {
@@ -81,6 +102,7 @@ export async function extractPdfText(file, { maxPages = TEXT_PAGE_CAP } = {}) {
       const content = await page.getTextContent()
       const line = content.items.map(it => (typeof it.str === 'string' ? it.str : '')).join(' ')
       chunks.push(line)
+      if (onProgress) onProgress(0.15 + 0.85 * (i / pagesToRead))
     }
   } finally {
     pdf.destroy?.()
@@ -99,8 +121,9 @@ export async function extractPdfText(file, { maxPages = TEXT_PAGE_CAP } = {}) {
   }
 }
 
-export async function renderPdfPages(file, { maxPages = RENDER_PAGE_CAP, scale = 1.6 } = {}) {
-  const pdf = await open(file)
+export async function renderPdfPages(file, { maxPages = RENDER_PAGE_CAP, scale = 1.6, onProgress = null, data = null } = {}) {
+  const bytes = data || await readBytesWithProgress(file, null)
+  const pdf = await open(bytes)
   const pagesToRender = Math.min(pdf.numPages, maxPages)
   const images = []
   try {
@@ -115,6 +138,7 @@ export async function renderPdfPages(file, { maxPages = RENDER_PAGE_CAP, scale =
       ctx.fillRect(0, 0, canvas.width, canvas.height)
       await page.render({ canvasContext: ctx, viewport }).promise
       images.push({ base64: canvas.toDataURL('image/jpeg', 0.85), type: 'image/jpeg' })
+      if (onProgress) onProgress(i / pagesToRender)
     }
   } finally {
     pdf.destroy?.()

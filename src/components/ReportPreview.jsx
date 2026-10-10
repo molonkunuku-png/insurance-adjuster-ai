@@ -1,15 +1,19 @@
 import React, { useMemo, useState } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { FileText, Download, Code2, Eye, Sparkles, RefreshCw, Printer, FileDown } from 'lucide-react'
+import { FileText, Download, Code2, Eye, Sparkles, RefreshCw, Printer, FileDown, PenLine, CheckCircle2 } from 'lucide-react'
 import Mascot from './Mascot'
 import { exportDocx } from '../lib/ai'
-import { useI18n } from '../i18n'
+import { useI18n, useFormat } from '../i18n'
 
-function ReportPreview({ report, onGenerate, loading }) {
+function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMarkdownUpdate }) {
   const { t } = useI18n()
+  const { dateTime } = useFormat()
   const [showRaw, setShowRaw] = useState(false)
   const [busy, setBusy] = useState(null) // 'docx' | null
+  const [signName, setSignName] = useState('')
+  const [signNote, setSignNote] = useState('')
+  const [signed, setSigned] = useState(null) // { name, at }
   const markdown = report?.markdown
 
   const download = () => {
@@ -22,6 +26,16 @@ function ReportPreview({ report, onGenerate, loading }) {
     URL.revokeObjectURL(url)
   }
 
+  const signDraft = () => {
+    if (!markdown || !signName.trim()) return
+    const at = new Date().toISOString()
+    const block = `\n\n## Adjuster sign-off\n${signNote.trim()}\n\nSigned by ${signName.trim()} · ${at}\n`
+    onMarkdownUpdate?.((markdown || '') + block)
+    setSigned({ name: signName.trim(), at: Date.now() })
+    setSignNote('')
+    onSigned?.()
+  }
+
   const downloadDocx = async () => {
     setBusy('docx')
     try {
@@ -32,6 +46,7 @@ function ReportPreview({ report, onGenerate, loading }) {
       a.download = `themis-loss-report-${Date.now()}.docx`
       a.click()
       URL.revokeObjectURL(url)
+      onExported?.()
     } catch (e) {
       alert(e.message || t('error.docxFailed', 'DOCX export failed'))
     } finally {
@@ -138,6 +153,48 @@ function ReportPreview({ report, onGenerate, loading }) {
           <><Sparkles size={16} /> {t('report.generate', 'Generate full report')}</>
         )}
       </button>
+
+      {markdown && (
+        <div className="surface fade-in mt-4 p-5" data-print-hide>
+          <div className="mb-3 flex items-center gap-2 text-[var(--muted)]">
+            <PenLine size={15} />
+            <span className="text-[11px] font-semibold uppercase tracking-wider">{t('sign.title', 'Adjuster notes & sign-off')}</span>
+            {signed && (
+              <span className="badge lifecycle-approved ml-auto">
+                <CheckCircle2 size={11} /> {t('sign.signed', 'Signed')} · {signed.name} · {dateTime(signed.at)}
+              </span>
+            )}
+          </div>
+          {!signed && (
+            <div className="space-y-2.5">
+              <textarea
+                value={signNote}
+                onChange={e => setSignNote(e.target.value)}
+                rows={2}
+                maxLength={2000}
+                placeholder={t('sign.notesPh', 'Adjuster comments on the draft…')}
+                className="w-full resize-y rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-3 py-2 text-sm text-[var(--fg)] outline-none transition placeholder:text-[var(--muted)]/60 focus:border-[var(--accent)]"
+              />
+              <div className="flex gap-2">
+                <input
+                  value={signName}
+                  onChange={e => setSignName(e.target.value)}
+                  placeholder={t('sign.name', 'Your name')}
+                  maxLength={120}
+                  className="input flex-1"
+                />
+                <button
+                  onClick={signDraft}
+                  disabled={!signName.trim()}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[#0b0d17] transition enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <PenLine size={14} /> {t('sign.button', 'Sign this draft')}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

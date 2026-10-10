@@ -15,11 +15,12 @@ export function apiGet(path) {
   return request(path, { method: 'GET', headers: { Accept: 'application/json' } })
 }
 
-export function apiPost(path, body) {
+export function apiPost(path, body, { signal } = {}) {
   return request(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
+    ...(signal ? { signal } : {}),
   })
 }
 

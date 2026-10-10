@@ -5,12 +5,12 @@
  */
 import { apiPost, apiPostBlob } from './api'
 
-export async function analyzeDamageAndPolicy(imagesBase64, pdfText, damageNotes = '') {
+export async function analyzeDamageAndPolicy(imagesBase64, pdfText, damageNotes = '', { signal } = {}) {
   const { analysis } = await apiPost('/api/analyze', {
     images: imagesBase64,
     policyText: pdfText,
     damageNotes,
-  })
+  }, { signal })
   return analysis
 }
 

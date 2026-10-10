@@ -53,6 +53,62 @@ const DAMAGE_SIGNALS = [
   { label: 'Mold', pattern: /\b(mold|mildew)\b/i },
 ]
 
+/**
+ * Coverage-gap checklist. A gap is NEVER stated as a fact — the engine only
+ * reports that no matching language was detected in the extracted text, so a
+ * human must verify against the full policy. `damage` marks whether the loss
+ * notes even mention the peril (relevance flag, not a conclusion).
+ */
+const GAP_CHECKLIST = [
+  { key: 'flood', label: 'Flood', policy: /\bflood\b/i, damage: /\b(flood|water|leak|seepage|saturat)\b/i },
+  { key: 'quake', label: 'Earthquake', policy: /\bearthquake\b/i, damage: /\b(earthquake|tremor|seismic)\b/i },
+  { key: 'windhail', label: 'Wind & hail', policy: /\b(wind|hail)\b/i, damage: /\b(wind|hail|storm|shingle)\b/i },
+  { key: 'waterbackup', label: 'Water backup / sewer', policy: /\b(backup|sewer|sump)\b/i, damage: /\b(backup|sewer|drain|sump)\b/i },
+  { key: 'ordinance', label: 'Ordinance & law', policy: /\b(ordinance|code upgrade|law and ordinance)\b/i, damage: /\b(code|permit|rebuild)\b/i },
+  { key: 'replacement', label: 'Replacement cost', policy: /\b(replacement cost|RCV|replacement value)\b/i, damage: /\b(replace|new roof|rebuild)\b/i },
+  { key: 'lossofuse', label: 'Loss of use', policy: /\b(loss of use|additional living expense|ALE)\b/i, damage: /\b(uninhabitable|hotel|relocat|displaced)\b/i },
+  { key: 'liability', label: 'Liability', policy: /\bliability\b/i, damage: /\b(injur|liab|third party|neighbor)\b/i },
+]
+
+function buildGaps(policyText, damageNotes) {
+  const gaps = []
+  for (const g of GAP_CHECKLIST) {
+    if (g.policy.test(policyText || '')) continue
+    const relevant = g.damage.test(damageNotes || '')
+    gaps.push({
+      key: g.key,
+      label: g.label,
+      damageRelevant: relevant,
+      note: relevant
+        ? 'Damage notes mention this peril but no matching language was detected in the extracted policy text — verify coverage before quoting.'
+        : 'No language for this protection was detected in the extracted text — confirm with the full policy; consider whether the insured needs it.',
+    })
+  }
+  return gaps.slice(0, 8)
+}
+
+/** Peril chips: which perils appear in the policy text, the loss notes, or both. */
+const PERIL_MAP = [
+  { key: 'wind', label: 'Wind', pattern: /\b(wind|windstorm)\b/i },
+  { key: 'hail', label: 'Hail', pattern: /\b(hail|hailstorm)\b/i },
+  { key: 'flood', label: 'Flood', pattern: /\bflood\b/i },
+  { key: 'fire', label: 'Fire', pattern: /\b(fire|smoke)\b/i },
+  { key: 'water', label: 'Water', pattern: /\b(water|leak|seepage)\b/i },
+  { key: 'quake', label: 'Earthquake', pattern: /\bearthquake\b/i },
+]
+
+function buildPerils(policyText, damageNotes) {
+  const out = []
+  for (const p of PERIL_MAP) {
+    const inPolicy = p.pattern.test(policyText || '')
+    const inNotes = p.pattern.test(damageNotes || '')
+    if (inPolicy || inNotes) {
+      out.push({ key: p.key, label: p.label, source: inPolicy && inNotes ? 'both' : inPolicy ? 'policy' : 'notes' })
+    }
+  }
+  return out
+}
+
 /** Split a body of text into trimmed, non-empty lines with source attribution. */
 function splitLines(text) {
   const out = []
@@ -151,6 +207,8 @@ export function localAnalyze({ policyText, damageNotes, imageCount = 0 }) {
       nextSteps: ['Provide a policy document, damage photos, or a written description to begin.'],
       confidence: 'low',
       needsReview: true,
+      gaps: [],
+      perils: [],
     }
   }
 
@@ -161,6 +219,8 @@ export function localAnalyze({ policyText, damageNotes, imageCount = 0 }) {
     nextSteps: buildNextSteps(facts),
     confidence: 'low',
     needsReview: true,
+    gaps: buildGaps(policy, notes),
+    perils: buildPerils(policy, notes),
   }
 }
 
@@ -276,6 +336,15 @@ export function localReport(analysis) {
   lines.push('')
   lines.push(section('Estimated costs'))
   lines.push(a.estimatedValue || 'Not estimated.')
+  lines.push('')
+  lines.push(section('Coverage gaps to verify'))
+  if (Array.isArray(a.gaps) && a.gaps.length > 0) {
+    for (const g of a.gaps) {
+      lines.push(`- ${g.label}${g.damageRelevant ? ' (mentioned in loss notes)' : ''}: ${g.note || 'Verify against the original policy.'}`)
+    }
+  } else {
+    lines.push('No checklist gaps detected in the extracted text. Confirm against the full policy before advising the insured.')
+  }
   lines.push('')
   lines.push(section('Next steps'))
   for (const [i, step] of (Array.isArray(a.nextSteps) ? a.nextSteps : []).entries()) {

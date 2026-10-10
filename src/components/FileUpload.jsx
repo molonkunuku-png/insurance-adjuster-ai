@@ -1,19 +1,42 @@
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useState, useRef, useCallback, useEffect } from 'react'
 import {
   FileText, ImagePlus, Plus, X, Loader2, CheckCircle2,
   AlertTriangle, ScanEye, RotateCcw, ArrowRight,
 } from 'lucide-react'
 import { extractPdfText, renderPdfPages } from '../lib/pdf'
+import { sniffKind, isImageKind, MAX_IMAGE_BYTES, MAX_PDF_BYTES } from '../lib/files'
 import { useI18n } from '../i18n'
 
-function FileUpload({ onUpload }) {
+function FileUpload({ onUpload, initial = null, onSnapshot = null }) {
   const { t } = useI18n()
-  const [files, setFiles] = useState({ policyPdf: null, damageImages: [] })
-  const [policy, setPolicy] = useState({ status: 'idle', text: '', images: [], numPages: 0, truncated: false, error: '' })
-  const [notes, setNotes] = useState('')
+  const [files, setFiles] = useState(() => ({
+    policyPdf: initial?.policy?.fileName ? { name: initial.policy.fileName } : null,
+    damageImages: (initial?.damageImages || []).map(d => ({ file: null, name: d.name || 'damage photo', base64: d.base64, type: d.type })),
+  }))
+  const [policy, setPolicy] = useState(() => ({
+    status: initial?.policy?.status || 'idle',
+    text: initial?.policy?.text || '',
+    images: initial?.policy?.images || [],
+    numPages: initial?.policy?.numPages || 0,
+    truncated: initial?.policy?.truncated || false,
+    error: '',
+  }))
+  const [notes, setNotes] = useState(initial?.notes || '')
   const [dragging, setDragging] = useState(false)
+  const [progress, setProgress] = useState(null) // 0..1 while the PDF bytes are read
+  const [notice, setNotice] = useState('')
   const pdfInput = useRef(null)
   const imgInput = useRef(null)
+
+  // Serializable snapshot for cancel-restore + continue-last-claim (App persists it).
+  useEffect(() => {
+    onSnapshot?.({
+      notes,
+      policy: { ...policy, error: '', fileName: files.policyPdf?.name || null },
+      damageImages: files.damageImages.map(f => ({ base64: f.base64, type: f.type, name: f.file?.name || f.name || 'damage photo' })),
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes, policy, files])
 
   const readAsBase64 = file => new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -24,28 +47,56 @@ function FileUpload({ onUpload }) {
 
   const addImages = useCallback(async (fileList) => {
     const incoming = []
+    let rejectedType = 0
+    let rejectedSize = 0
     for (const file of Array.from(fileList)) {
-      if (file.type?.startsWith('image/')) {
-        const base64 = await readAsBase64(file)
-        incoming.push({ file, base64, type: file.type })
-      }
+      const kind = await sniffKind(file)
+      if (!isImageKind(kind)) { rejectedType++; continue }
+      if (file.size > MAX_IMAGE_BYTES) { rejectedSize++; continue }
+      const base64 = await readAsBase64(file)
+      const type = kind === 'jpg' ? 'image/jpeg' : kind === 'png' ? 'image/png' : kind === 'gif' ? 'image/gif' : 'image/webp'
+      incoming.push({ file, name: file.name, base64, type })
     }
+    if (rejectedType + rejectedSize > 0) {
+      setNotice(
+        [rejectedType > 0 ? t('upload.rejectedType', 'Some files were skipped: JPEG, PNG, GIF, or WebP images only.') : null,
+         rejectedSize > 0 ? t('upload.tooLarge', 'Some images exceed the 10 MB limit and were skipped.') : null]
+          .filter(Boolean).join(' ')
+      )
+    } else {
+      setNotice('')
+    }
+    if (incoming.length === 0) return
     setFiles(prev => ({
       ...prev,
       damageImages: [...prev.damageImages, ...incoming].filter(
         (f, i, arr) => arr.findIndex(x => x.base64 === f.base64) === i
       ),
     }))
-  }, [])
+  }, [t])
 
   const addPdf = useCallback(async (file) => {
     if (!file) return
     const isPdf = file.type === 'application/pdf' || file.name?.toLowerCase().endsWith('.pdf')
     if (!isPdf) return
+    // Fail fast before pdf.js even loads: size cap + magic bytes.
+    if (file.size > MAX_PDF_BYTES) {
+      setFiles(prev => ({ ...prev, policyPdf: file }))
+      setPolicy({ status: 'error', text: '', images: [], numPages: 0, truncated: false, error: t('upload.pdfTooLarge', 'That PDF exceeds the 15 MB limit. Try a smaller file.') })
+      return
+    }
+    if ((await sniffKind(file)) !== 'pdf') {
+      setFiles(prev => ({ ...prev, policyPdf: file }))
+      setPolicy({ status: 'error', text: '', images: [], numPages: 0, truncated: false, error: t('upload.pdfBadMagic', 'That file is not a readable PDF. Try a different file.') })
+      return
+    }
     setFiles(prev => ({ ...prev, policyPdf: file }))
+    setNotice('')
+    setProgress(0)
     setPolicy({ status: 'reading', text: '', images: [], numPages: 0, truncated: false, error: '' })
     try {
-      const res = await extractPdfText(file)
+      const res = await extractPdfText(file, { onProgress: (f) => setProgress(f) })
+      setProgress(null)
       if (res.scanned) {
         // No text layer (scanned policy) — rasterize pages for Vision instead.
         const images = await renderPdfPages(file)
@@ -55,16 +106,20 @@ function FileUpload({ onUpload }) {
       }
     } catch (e) {
       console.error('[pdf] extraction failed', e)
+      setProgress(null)
       setPolicy({ status: 'error', text: '', images: [], numPages: 0, truncated: false, error: e.message || 'Failed to read PDF. Try again or use a text-based PDF.' })
     }
-  }, [])
+  }, [t])
 
   const handleDrop = async (e) => {
     e.preventDefault()
     setDragging(false)
     for (const file of Array.from(e.dataTransfer.files)) {
-      if (file.type === 'application/pdf') await addPdf(file)
-      else if (file.type?.startsWith('image/')) await addImages([file])
+      const name = file.name?.toLowerCase() || ''
+      const pdfish = file.type === 'application/pdf' || name.endsWith('.pdf')
+      const imgish = file.type?.startsWith('image/') || /\.(jpe?g|png|gif|webp)$/.test(name)
+      if (pdfish) await addPdf(file)
+      else if (imgish) await addImages([file])
     }
   }
 
@@ -75,12 +130,15 @@ function FileUpload({ onUpload }) {
     setFiles({ policyPdf: null, damageImages: [] })
     setPolicy({ status: 'idle', text: '', images: [], numPages: 0, truncated: false, error: '' })
     setNotes('')
+    setNotice('')
+    setProgress(null)
   }
 
   const clearPdf = (e) => {
     e.stopPropagation()
     setFiles(prev => ({ ...prev, policyPdf: null }))
     setPolicy({ status: 'idle', text: '', images: [], numPages: 0, truncated: false, error: '' })
+    setProgress(null)
   }
 
   const getImagesForAI = async () => {
@@ -148,6 +206,11 @@ function FileUpload({ onUpload }) {
             <>
               <div className="text-sm font-semibold text-[var(--accent)]">{t('upload.policy.reading', 'Reading policy…')}</div>
               <div className="mt-0.5 text-xs text-[var(--muted)]">{t('upload.finePrint', 'extracting the fine print')}</div>
+              {progress != null && (
+                <div className="mt-3 h-1.5 w-48 overflow-hidden rounded-full bg-[var(--line)]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
+                  <div className="h-full rounded-full bg-[var(--accent)] transition-[width]" style={{ width: `${Math.round(progress * 100)}%` }} />
+                </div>
+              )}
             </>
           )}
           {files.policyPdf && policy.status === 'ready' && (
@@ -208,7 +271,7 @@ function FileUpload({ onUpload }) {
             <div className="grid grid-cols-3 gap-2">
               {files.damageImages.map((f, i) => (
                 <div key={i} className="group relative aspect-square overflow-hidden rounded-xl border border-[var(--line)]">
-                  <img src={f.base64} alt={f.file.name} className="h-full w-full object-cover" />
+                  <img src={f.base64} alt={f.file?.name || f.name || 'damage photo'} className="h-full w-full object-cover" />
                   <button
                     type="button"
                     onClick={() => removeImage(i)}
@@ -235,6 +298,11 @@ function FileUpload({ onUpload }) {
       <input ref={imgInput} type="file" accept="image/*" multiple className="hidden" onChange={e => { addImages(e.target.files); e.target.value = '' }} />
 
       {/* Damage description */}
+      {notice && (
+        <div className="mt-4 rounded-xl border border-[var(--warn)]/40 bg-[var(--warn-soft)] px-4 py-2.5 text-xs text-[var(--warn)]">
+          {notice}
+        </div>
+      )}
       <div className="mt-4">
         <label htmlFor="damage-notes" className="mb-1.5 block text-xs font-medium text-[var(--muted)]">
           {t('upload.notesLabel', 'Describe the damage')} <span className="text-[var(--muted)]/70">{t('upload.notesOptional', '(optional — helps even without photos)')}</span>
