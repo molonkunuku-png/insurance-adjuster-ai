@@ -6,6 +6,16 @@ const { Pool } = pg
 let pool = null
 let useMemory = false
 
+// ---------------------------------------------------------------------------
+// Data-retention notes (beta policy, Top200 D36/D38):
+// - beta_leads holds names + work emails (PII). No claim photos, policy text,
+//   or report contents are ever stored server-side.
+// - Magic-token hashes are purged on a schedule (purgeExpiredTokens, 24h).
+// - The `claims` table below is intentionally RESERVED and unwired: turning it
+//   on requires a retention/deletion policy + per-agency consent first.
+// - Nightly owner exports (D37) stay manual until beta exceeds 50 leads.
+// ---------------------------------------------------------------------------
+
 // In-memory fallback so the server runs locally / without Postgres.
 const memory = {
   betaLeads: [],
@@ -25,6 +35,8 @@ CREATE TABLE IF NOT EXISTS beta_leads (
   confirmed_at  TIMESTAMPTZ
 );
 CREATE UNIQUE INDEX IF NOT EXISTS beta_leads_email_idx ON beta_leads (lower(email));
+CREATE INDEX IF NOT EXISTS beta_leads_token_idx ON beta_leads (access_token_hash);
+CREATE INDEX IF NOT EXISTS beta_leads_status_created_idx ON beta_leads (status, created_at DESC);
 
 -- Access / invite columns (added incrementally for existing deployments)
 ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS access_token_hash TEXT;
@@ -60,6 +72,11 @@ export async function initDb() {
     useMemory = true
     pool = null
   }
+  // Daily purge of expired magic-token hashes (stale hashes must not accumulate).
+  const timer = setInterval(() => {
+    purgeExpiredTokens().catch(e => console.error('[db] purge failed:', e.message))
+  }, 24 * 3600 * 1000)
+  timer.unref?.()
 }
 
 export async function saveBetaLead({ name, email, role, claimsPerMonth, source }) {
@@ -111,6 +128,45 @@ export async function countInvited() {
     `SELECT COUNT(*)::int AS n FROM beta_leads WHERE status IN ('invited','active')`
   )
   return res.rows[0].n
+}
+
+export async function countByStatus() {
+  if (useMemory) {
+    const out = { pending: 0, invited: 0, active: 0 }
+    for (const l of memory.betaLeads) {
+      if (out[l.status] !== undefined) out[l.status] += 1
+      else out.pending += 1
+    }
+    return out
+  }
+  const res = await pool.query(
+    `SELECT status, COUNT(*)::int AS n FROM beta_leads GROUP BY status`
+  )
+  const out = { pending: 0, invited: 0, active: 0 }
+  for (const row of res.rows) {
+    if (out[row.status] !== undefined) out[row.status] = row.n
+  }
+  return out
+}
+
+export async function purgeExpiredTokens() {
+  const now = new Date()
+  if (useMemory) {
+    let n = 0
+    for (const l of memory.betaLeads) {
+      if (l.accessTokenHash && l.tokenExpiresAt && new Date(l.tokenExpiresAt) < now) {
+        l.accessTokenHash = null
+        l.tokenExpiresAt = null
+        n += 1
+      }
+    }
+    return n
+  }
+  const res = await pool.query(
+    `UPDATE beta_leads SET access_token_hash = NULL, token_expires_at = NULL
+     WHERE access_token_hash IS NOT NULL AND token_expires_at < now()`
+  )
+  return res.rowCount || 0
 }
 
 export async function approveLead({ email, tokenHash, expiresAt }) {
@@ -188,12 +244,14 @@ export async function revokeLead(email) {
   )
 }
 
-export async function listBetaLeads(limit = 200) {
-  if (useMemory) return memory.betaLeads.slice(0, limit)
+export async function listBetaLeads(limit = 200, offset = 0) {
+  const lim = Math.min(Math.max(Number(limit) || 200, 1), 200)
+  const off = Math.max(Number(offset) || 0, 0)
+  if (useMemory) return memory.betaLeads.slice(off, off + lim)
   const res = await pool.query(
     `SELECT id, name, email, role, claims_per_month, status, created_at, invited_at, last_login_at, uses
-     FROM beta_leads ORDER BY created_at DESC LIMIT $1`,
-    [limit]
+     FROM beta_leads ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+    [lim, off]
   )
   return res.rows
 }

@@ -7,7 +7,7 @@ async function main() {
   const app = createApp()
   app.listen(config.port, () => {
     console.log(`[server] Themis API listening on :${config.port} (${config.nodeEnv})`)
-    if (!config.openaiKey) console.warn('[server] OPENAI_API_KEY not set — AI endpoints will fail')
+    if (config.aiProvider === 'openai' && !config.openaiKey) console.warn('[server] AI_PROVIDER=openai but OPENAI_API_KEY not set — AI endpoints will fail')
     if (!config.resendKey) console.warn('[server] RESEND_API_KEY not set — emails will be skipped')
     if (!isProd) console.warn('[server] development mode — CORS allows localhost')
   })

@@ -2,9 +2,12 @@ import crypto from 'crypto'
 import { config, isProd } from './config.js'
 
 // Ephemeral fallback so dev works without a configured secret.
-// In production, SESSION_SECRET should always be set (we warn loudly otherwise).
+// In production we refuse to boot without one (fail closed, never ephemeral).
 let SESSION_SECRET = config.sessionSecret
 if (!SESSION_SECRET) {
+  if (isProd) {
+    throw new Error('[auth] SESSION_SECRET is required in production — refusing to boot with an ephemeral secret')
+  }
   SESSION_SECRET = crypto.randomBytes(32).toString('hex')
   console.warn('[auth] SESSION_SECRET not set — using ephemeral secret (sessions reset on restart)')
 }
@@ -21,7 +24,7 @@ function hmac(data) {
   return crypto.createHmac('sha256', SESSION_SECRET).update(data).digest('base64url')
 }
 
-function safeEqual(a, b) {
+export function safeEqual(a, b) {
   const ba = Buffer.from(String(a))
   const bb = Buffer.from(String(b))
   if (ba.length !== bb.length) return false
@@ -55,25 +58,36 @@ export function parseCookies(header = '') {
   for (const part of String(header).split(';')) {
     const i = part.indexOf('=')
     if (i < 0) continue
-    out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim())
+    try {
+      out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim())
+    } catch {
+      out[part.slice(0, i).trim()] = part.slice(i + 1).trim()
+    }
   }
   return out
 }
 
+// Effective cookie name: __Host- prefix in production (requires Secure +
+// Path=/ + no Domain, which we satisfy below) for session-theft resistance.
+export function cookieName() {
+  return `${isProd ? '__Host-' : ''}${config.cookieName}`
+}
+
 export function sessionCookie(value, { maxAgeSeconds = config.sessionTtlDays * 86400 } = {}) {
   const attrs = [
-    `${config.cookieName}=${value}`,
+    `${cookieName()}=${value}`,
     'Path=/',
     'HttpOnly',
     'SameSite=Lax',
     `Max-Age=${maxAgeSeconds}`,
+    `Expires=${new Date(Date.now() + maxAgeSeconds * 1000).toUTCString()}`,
   ]
   if (isProd) attrs.push('Secure')
   return attrs.join('; ')
 }
 
 export function clearSessionCookie() {
-  const attrs = [`${config.cookieName}=`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0']
+  const attrs = [`${cookieName()}=`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0']
   if (isProd) attrs.push('Secure')
   return attrs.join('; ')
 }

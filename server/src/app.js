@@ -9,6 +9,7 @@ import { config, isProd } from './config.js'
 import {
   saveBetaLead, listBetaLeads, dbMode, countInvited, approveLead,
   findLeadByTokenHash, findLeadByEmail, markLogin, revokeLead,
+  countByStatus, purgeExpiredTokens,
 } from './db.js'
 import {
   sendBetaConfirmation, sendBetaAccess, sendAdminNotification, smtpConfigured,
@@ -18,7 +19,7 @@ import { localAnalyze, localAsk, localReport } from './engine.js'
 import { buildDocx, exportFilename } from './docx.js'
 import {
   generateAccessToken, hashToken, createSession, verifySession,
-  parseCookies, sessionCookie, clearSessionCookie,
+  parseCookies, sessionCookie, clearSessionCookie, safeEqual, cookieName,
 } from './auth.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -38,26 +39,57 @@ export function createApp() {
     },
   }))
 
-  app.use(express.json({ limit: '30mb' }))
+  // 16MB: 12 images at the per-image byte cap below, plus policy text headroom.
+  app.use(express.json({ limit: '16mb' }))
 
   // Parse the session cookie and attach req.session
   app.use((req, _res, next) => {
     const cookies = parseCookies(req.headers.cookie)
-    req.session = verifySession(cookies[config.cookieName])
+    req.session = verifySession(cookies[cookieName()])
     next()
   })
 
-  const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false })
-  const betaLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false })
-
-  function requireAuth(req, res, next) {
-    if (!req.session) return res.status(401).json({ error: 'Access required. Request a beta invite to continue.' })
+  const noStore = (_req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store')
     next()
   }
 
+  const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false })
+  const analyzeLimiter = rateLimit({ windowMs: 60 * 1000, max: 15, standardHeaders: true, legacyHeaders: false })
+  const betaLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false })
+  const adminLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false })
+
+  // In-memory daily analysis tally per lead (single-instance beta discipline).
+  const dailyUse = new Map() // leadId -> { day: 'YYYY-MM-DD', n: number }
+  function checkDailyCap(leadId) {
+    const today = new Date().toISOString().slice(0, 10)
+    const rec = dailyUse.get(leadId)
+    if (!rec || rec.day !== today) {
+      dailyUse.set(leadId, { day: today, n: 1 })
+      return true
+    }
+    if (rec.n >= config.dailyAnalysisCap) return false
+    rec.n += 1
+    return true
+  }
+
+  function requireAuth(req, res, next) {
+    if (!req.session) return res.status(401).json({ error: 'Access required. Request a beta invite to continue.' })
+    // Fail closed on revoked leads: sessions are stateless HMAC, so re-check
+    // status on every gated request (cheap at beta scale).
+    findLeadByEmail(req.session.email || '')
+      .then(lead => {
+        if (!lead || (lead.status !== 'invited' && lead.status !== 'active')) {
+          return res.status(401).json({ error: 'Access required. Request a beta invite to continue.' })
+        }
+        next()
+      })
+      .catch(next)
+  }
+
   function requireAdmin(req, res, next) {
-    const secret = req.get('x-admin-secret')
-    if (!config.adminSecret || secret !== config.adminSecret) {
+    const secret = req.get('x-admin-secret') || ''
+    if (!config.adminSecret || !safeEqual(secret, config.adminSecret)) {
       return res.status(401).json({ error: 'unauthorized' })
     }
     next()
@@ -74,11 +106,13 @@ export function createApp() {
       auth: Boolean(config.sessionSecret),
       betaLimit: config.betaLimit,
       env: config.nodeEnv,
+      uptime: Math.round(process.uptime()),
+      build: process.env.RENDER_GIT_COMMIT || 'dev',
     })
   })
 
   // ---- auth session ----
-  app.get('/api/auth/me', (req, res) => {
+  app.get('/api/auth/me', noStore, (req, res) => {
     res.json({ authorized: Boolean(req.session), email: req.session?.email || null })
   })
 
@@ -88,14 +122,18 @@ export function createApp() {
   })
 
   // ---- magic-link verify ----
-  app.get('/api/access/verify', async (req, res) => {
+  app.get('/api/access/verify', noStore, async (req, res) => {
     const fail = (reason) => res.redirect(`${config.appUrl}/?access=${reason}`)
     try {
       const token = req.query.token
       if (!token) return fail('invalid')
       const lead = await findLeadByTokenHash(hashToken(token))
       if (!lead) return fail('invalid')
-      if (lead.token_expires_at && new Date(lead.token_expires_at) < new Date()) return fail('expired')
+      // Fail closed: revoked/pending leads can't ride an old link in.
+      if (lead.status !== 'invited' && lead.status !== 'active') return fail('invalid')
+      // Memory store uses camelCase, postgres snake_case — check both.
+      const expiry = lead.token_expires_at ?? lead.tokenExpiresAt
+      if (expiry && new Date(expiry) < new Date()) return fail('expired')
       await markLogin(lead.id)
       res.setHeader('Set-Cookie', sessionCookie(createSession(lead.id, lead.email)))
       res.redirect(`${config.appUrl}/?access=ok`)
@@ -117,7 +155,7 @@ export function createApp() {
         source: str(source, 60) || 'themis-beta',
       }
       if (!clean.name) return res.status(400).json({ error: 'Name is required' })
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean.email)) {
+      if (!isEmail(clean.email)) {
         return res.status(400).json({ error: 'A valid email is required' })
       }
 
@@ -135,18 +173,22 @@ export function createApp() {
         if (grantAccess) {
           const r = await grantAndSend(clean)
           accessSent = r.emailSent ? 'sent' : `failed: ${r.error}`
-          if (!r.emailSent) accessUrl = r.accessUrl
+          // Configured mailer: never hand the magic link back in JSON.
         } else {
           waitlistSent = await sendBetaConfirmation(clean).then(() => 'sent').catch(e => `failed: ${e.message}`)
         }
         notified = await sendAdminNotification({ ...clean, created }).then(() => 'sent').catch(e => `failed: ${e.message}`)
       } else {
+        if (grantAccess) {
+          const r = await grantAndSend(clean)
+          accessUrl = r.accessUrl
+        }
         console.warn('[email] RESEND_API_KEY not set — skipping emails')
       }
 
-      console.log(`[beta] ${created ? 'created' : 'updated'} id=${lead.id} email=${clean.email} grant=${grantAccess} access=${accessSent} waitlist=${waitlistSent} notify=${notified}`)
+      console.log(`[beta] ${created ? 'created' : 'updated'} id=${lead.id} grant=${grantAccess} access=${accessSent} waitlist=${waitlistSent} notify=${notified}`)
       res.status(created ? 201 : 200).json({
-        ok: true, id: lead.id, created, granted: grantAccess,
+        ok: true, granted: grantAccess,
         access: accessSent, waitlist: waitlistSent, notified,
         ...(accessUrl ? { accessUrl } : {}),
       })
@@ -159,14 +201,19 @@ export function createApp() {
   app.post('/api/beta/resend', betaLimiter, async (req, res) => {
     try {
       const email = str(req.body?.email, 200).toLowerCase()
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      if (!isEmail(email)) {
         return res.status(400).json({ error: 'A valid email is required' })
       }
       const lead = await findLeadByEmail(email)
       let accessUrl = null
-      if (lead && (lead.status === 'invited' || lead.status === 'active') && smtpConfigured()) {
-        const r = await grantAndSend({ name: lead.name, email })
-        if (!r.emailSent) accessUrl = r.accessUrl
+      if (lead && (lead.status === 'invited' || lead.status === 'active')) {
+        if (smtpConfigured()) {
+          await grantAndSend({ name: lead.name, email }).catch(() => {})
+        } else {
+          // No mailer (local dev): mint + return the link so sign-in works offline.
+          const r = await grantAndSend({ name: lead.name, email })
+          accessUrl = r.accessUrl
+        }
       } else if (lead && smtpConfigured()) {
         await sendBetaConfirmation({ name: lead.name, email }).catch(() => {})
       }
@@ -179,8 +226,13 @@ export function createApp() {
   })
 
   // ---- gated AI endpoints ----
-  app.post('/api/analyze', apiLimiter, requireAuth, async (req, res) => {
+  // 8MB per image (base64 inflates ~33%, so ~10.6M chars is the wire ceiling).
+  const MAX_IMAGE_B64 = 11_000_000
+  app.post('/api/analyze', noStore, analyzeLimiter, requireAuth, async (req, res) => {
     try {
+      if (!checkDailyCap(req.session.id)) {
+        return res.status(429).json({ error: `Daily analysis limit reached (${config.dailyAnalysisCap}/day). Try again tomorrow.` })
+      }
       const { images, policyText, damageNotes } = req.body || {}
       const imgs = Array.isArray(images) ? images : []
       const notes = str(damageNotes, 4000)
@@ -190,6 +242,7 @@ export function createApp() {
       if (imgs.length > 12) return res.status(400).json({ error: 'Too many images (max 12)' })
       for (const img of imgs) {
         if (!img?.base64 || !img?.type) return res.status(400).json({ error: 'Malformed image payload' })
+        if (String(img.base64).length > MAX_IMAGE_B64) return res.status(400).json({ error: 'Image too large (max ~8 MB per image)' })
         if (!looksLikeImage(img.base64)) return res.status(400).json({ error: 'Unsupported image encoding (JPEG, PNG, GIF, or WebP required)' })
       }
       const policy = str(policyText, 20000)
@@ -200,11 +253,11 @@ export function createApp() {
       res.json({ analysis })
     } catch (e) {
       console.error('[analyze] error:', e.message)
-      res.status(500).json({ error: e.message })
+      res.status(500).json({ error: 'Analysis failed. Please try again.' })
     }
   })
 
-  app.post('/api/report', apiLimiter, requireAuth, async (req, res) => {
+  app.post('/api/report', noStore, apiLimiter, requireAuth, async (req, res) => {
     try {
       const { analysis } = req.body || {}
       if (!analysis) return res.status(400).json({ error: 'analysis is required' })
@@ -214,11 +267,11 @@ export function createApp() {
       res.json({ markdown })
     } catch (e) {
       console.error('[report] error:', e.message)
-      res.status(500).json({ error: e.message })
+      res.status(500).json({ error: 'Report generation failed. Please try again.' })
     }
   })
 
-  app.post('/api/ask', apiLimiter, requireAuth, async (req, res) => {
+  app.post('/api/ask', noStore, apiLimiter, requireAuth, async (req, res) => {
     try {
       const { policyText, question, history } = req.body || {}
       const q = str(question, 1200)
@@ -235,21 +288,21 @@ export function createApp() {
       res.json({ response })
     } catch (e) {
       console.error('[ask] error:', e.message)
-      res.status(500).json({ error: e.message })
+      res.status(500).json({ error: 'Question failed. Please try again.' })
     }
   })
 
   app.post('/api/export/docx', apiLimiter, requireAuth, async (req, res) => {
     try {
-      const { markdown, analysis } = req.body || {}
+      const { markdown, analysis, lang } = req.body || {}
       if (!markdown && !analysis) return res.status(400).json({ error: 'nothing to export' })
-      const buf = await buildDocx({ markdown: str(markdown, 60000), analysis: analysis || null })
+      const buf = await buildDocx({ markdown: str(markdown, 60000), analysis: analysis || null, lang: lang === 'ms' ? 'ms' : 'en' })
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
       res.setHeader('Content-Disposition', `attachment; filename="${exportFilename()}"`)
       res.send(buf)
     } catch (e) {
       console.error('[export] error:', e.message)
-      res.status(500).json({ error: e.message })
+      res.status(500).json({ error: 'Export failed. Please try again.' })
     }
   })
 
@@ -316,8 +369,9 @@ async function grantAndSend({ name, email }) {
     await sendBetaAccess({ name, email, accessUrl })
     return { accessUrl, emailSent: true, error: null }
   } catch (e) {
-    console.warn(`[email] magic-link email FAILED for ${email}: ${e.message}`)
-    console.warn(`[email] ACCESS URL (test-mode fallback — open this in your browser): ${accessUrl}`)
+    // Log the failure, never the link: the URL is only returned to callers
+    // that are explicitly allowed to receive it (local dev, no mailer).
+    console.warn(`[email] magic-link email FAILED for lead id lookup — see errors table`)
     return { accessUrl, emailSent: false, error: e.message }
   }
 }
@@ -325,6 +379,11 @@ async function grantAndSend({ name, email }) {
 function str(v, max) {
   if (v === undefined || v === null) return ''
   return String(v).trim().slice(0, max)
+}
+
+// Tighter than the bare minimum: local part ≤64, domain has a 2+ char TLD.
+function isEmail(v) {
+  return /^[^\s@]{1,64}@[^\s@]{1,253}\.[^\s@]{2,}$/.test(String(v || ''))
 }
 
 // Magic-byte allowlist for data-URL image uploads: JPEG, PNG, GIF, WebP.

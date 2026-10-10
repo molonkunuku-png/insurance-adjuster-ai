@@ -25,10 +25,10 @@ export const config = {
   resendKey: process.env.RESEND_API_KEY || '',
   resendFrom: process.env.RESEND_FROM || 'Themis <onboarding@resend.dev>',
   contactEmail: process.env.CONTACT_EMAIL || 'molonkunuku@gmail.com',
-  appUrl: (process.env.APP_URL || 'https://insurance-adjuster-ai.onrender.com').replace(/\/$/, ''),
+  appUrl: (process.env.APP_URL || 'https://insurance-adjuster-ai1.onrender.com').replace(/\/$/, ''),
   // Public base URL of the API itself (where the magic-link verify endpoint lives).
   // Defaults to APP_URL for the single-service deploy.
-  publicApiUrl: (process.env.PUBLIC_API_URL || process.env.APP_URL || 'https://insurance-adjuster-ai.onrender.com').replace(/\/$/, ''),
+  publicApiUrl: (process.env.PUBLIC_API_URL || process.env.APP_URL || 'https://insurance-adjuster-ai1.onrender.com').replace(/\/$/, ''),
 
   databaseUrl: process.env.DATABASE_URL || '',
   clientOrigins: [...new Set([
@@ -42,7 +42,7 @@ export const config = {
   sessionSecret: process.env.SESSION_SECRET || '',
   adminSecret: process.env.ADMIN_SECRET || '',
   betaLimit: int(process.env.BETA_LIMIT, 10),
-  tokenTtlDays: int(process.env.TOKEN_TTL_DAYS, 7),
+  tokenTtlDays: int(process.env.TOKEN_TTL_DAYS, 2),
   sessionTtlDays: int(process.env.SESSION_TTL_DAYS, 7),
   cookieName: process.env.COOKIE_NAME || 'themis_session',
 }
