@@ -12,7 +12,7 @@ const ROLES = [
 
 export default function BetaForm() {
   const { t, lang } = useI18n()
-  const [form, setForm] = useState({ name: '', email: '', role: ROLES[0], claims: '' })
+  const [form, setForm] = useState({ name: '', email: '', role: ROLES[0].value, claims: '', company: '', volume: '' })
   const [status, setStatus] = useState('idle') // idle | sending | done | error
   const [granted, setGranted] = useState(false)
   const [accessUrl, setAccessUrl] = useState(null)
@@ -150,6 +150,14 @@ export default function BetaForm() {
           </Field>
           <Field label={t('beta.claims', 'Claims handled / month')}>
             <input inputMode="numeric" value={form.claims} onChange={e => setForm({ ...form, claims: e.target.value })} placeholder={t('beta.claimsPh', 'how many you handle, e.g. 40')} className="input" />
+          </Field>
+        </div>
+        <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2">
+          <Field label={t('beta.company', 'Company (optional)')}>
+            <input value={form.company} onChange={e => setForm({ ...form, company: e.target.value })} placeholder={t('beta.companyPh', 'Carrier / agency')} maxLength={120} className="input" />
+          </Field>
+          <Field label={t('beta.volume', 'Claims / month (optional)')}>
+            <input inputMode="numeric" value={form.volume} onChange={e => setForm({ ...form, volume: e.target.value })} placeholder={t('beta.volumePh', 'e.g. 200')} maxLength={20} className="input" />
           </Field>
         </div>
 

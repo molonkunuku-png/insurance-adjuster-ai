@@ -174,7 +174,7 @@ export function createApp() {
   // ---- beta signup (auto-approves until the cap) ----
   app.post('/api/beta', betaLimiter, async (req, res) => {
     try {
-      const { name, email, role, claims, source, lang } = req.body || {}
+      const { name, email, role, claims, source, lang, company, volume } = req.body || {}
       const clean = {
         name: str(name, 120),
         email: str(email, 200).toLowerCase(),
@@ -182,6 +182,8 @@ export function createApp() {
         claimsPerMonth: str(claims, 20),
         source: str(source, 60) || 'themis-beta',
         lang: lang === 'ms' ? 'ms' : 'en',
+        company: str(company, 120),
+        volume: str(volume, 20),
       }
       if (!clean.name) return res.status(400).json({ error: 'A name is required', code: 'badName' })
       if (!isEmail(clean.email)) {
@@ -282,6 +284,19 @@ export function createApp() {
       console.error('[beta/resend] error:', e)
       res.status(500).json({ error: 'Could not resend' })
     }
+  })
+
+  // ---- client error beacon (Tier 4 observability): same-origin, tiny,
+  // rate-limited, PII-scrubbed client-side. Never trust or log it raw.
+  app.post('/api/client-log', apiLimiter, (req, res) => {
+    try {
+      const level = req.body?.level === 'warn' ? 'warn' : 'error'
+      const msg = String(req.body?.msg || '').slice(0, 300)
+        .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[redacted-email]')
+      const path = String(req.body?.path || '').slice(0, 120)
+      if (msg) console.warn(`[client:${level}] ${path} :: ${msg}`)
+    } catch { /* never fail logging */ }
+    res.json({ ok: true })
   })
 
   // ---- gated AI endpoints ----

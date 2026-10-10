@@ -9,9 +9,12 @@ import FileUpload from './components/FileUpload'
 import ReportPreview from './components/ReportPreview'
 import LoadingState from './components/LoadingState'
 import GateView from './components/GateView'
+import DemoPage from './components/DemoPage'
+import TrustPage from './components/TrustPage'
 import Mascot from './components/Mascot'
 import AskPanel from './components/AskPanel'
 import { analyzeDamageAndPolicy, generateReport } from './lib/ai'
+import { scrubPII } from './lib/privacy'
 import { apiGet, apiPost, apiErrorMessage, devLog } from './lib/api'
 import { I18nProvider, useI18n, useFormat, LANGS } from './i18n'
 import { SAMPLE_POLICY, SAMPLE_NOTES, makeSampleImages } from './lib/sample'
@@ -237,9 +240,13 @@ const CONFIDENCE = {
   low: { cls: 'lifecycle-new', key: 'result.confLow', fb: 'Low confidence' },
 }
 
+// Module scope (not render): wall-clock stamps for draft-timing proof.
+const stampNow = () => Date.now()
+
 function App() {
   const { t, lang } = useI18n()
   const { dateTime } = useFormat()
+  const [route, setRoute] = useState(() => window.location.hash)
   const [step, setStep] = useState('upload')
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -249,6 +256,13 @@ function App() {
   const [accessStatus, setAccessStatus] = useState(null)
   const [gateMode, setGateMode] = useState('signup') // signup | signin
   const [appError, setAppError] = useState('')
+  // Public routes (no auth): #/demo zero-signup sample, #/security trust page.
+  useEffect(() => {
+    const onHash = () => setRoute(window.location.hash)
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+  const goApp = () => { window.location.hash = ''; setRoute('') }
   // Claim timeline (idea 0048+0055): local { ev, at } events for the audit log.
   const [events, setEvents] = useState([])
   // Draft snapshot for cancel-restore + continue-last-claim (ideas #4, 0036).
@@ -358,10 +372,12 @@ function App() {
     logEvent('started')
     const controller = new AbortController()
     abortRef.current = controller
+    const t0 = stampNow()
     try {
       const images = await getImagesForAI()
-      const pdfText = getPdfText()
-      const notes = getNotes()
+      // PII never leaves the device: scrub contact patterns client-side.
+      const pdfText = scrubPII(getPdfText())
+      const notes = scrubPII(getNotes())
       if (images.length === 0 && !notes.trim()) {
         setAppError(t('error.needInput', 'Add at least one damage photo or a short description of the damage'))
         setStep('upload')
@@ -369,7 +385,9 @@ function App() {
       }
       logEvent('inputs')
       const analysis = await analyzeDamageAndPolicy(images, pdfText, notes, { signal: controller.signal })
-      setReport({ analysis, policyText: pdfText || '' })
+      const analyzeMs = Math.round(stampNow() - t0)
+      setReport({ analysis, policyText: pdfText || '', timing: { analyzeMs } })
+      recordTiming(analyzeMs)
       setStep('result')
       logEvent('analysis')
       scrollTop()
@@ -402,13 +420,25 @@ function App() {
     })
   }
 
+  // Draft-timing proof (Tier 6): per-report durations persisted for aggregates.
+  const recordTiming = (ms) => {
+    try {
+      const arr = JSON.parse(localStorage.getItem('themis-timings') || '[]')
+      arr.push({ at: Date.now(), ms })
+      localStorage.setItem('themis-timings', JSON.stringify(arr.slice(-50)))
+    } catch { /* ignore */ }
+  }
+
   const handleGenerate = async () => {
     if (!report?.analysis) return
     setLoading(true)
     setAppError('')
+    const t0 = stampNow()
     try {
       const markdown = await generateReport(report.analysis, lang)
-      setReport(r => ({ ...r, markdown }))
+      const reportMs = Math.round(stampNow() - t0)
+      setReport(r => ({ ...r, markdown, timing: { ...(r?.timing || {}), reportMs } }))
+      recordTiming(reportMs)
       logEvent('report')
     } catch (e) {
       devLog(e)
@@ -420,6 +450,12 @@ function App() {
 
   return (
     <div className="relative min-h-screen">
+      {route === '#/demo' ? (
+        <DemoPage onBack={goApp} />
+      ) : route === '#/security' ? (
+        <TrustPage onBack={goApp} />
+      ) : (
+      <>
       <header data-print-hide className="sticky top-0 z-20 border-b border-[var(--line)] bg-[color-mix(in_srgb,var(--bg)_82%,transparent)] backdrop-blur-xl">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3.5">
           <Brand />
@@ -506,7 +542,14 @@ function App() {
 
       <footer className="border-t border-[var(--line)] px-4 py-6 text-center text-xs leading-relaxed text-[var(--muted)] text-balance">
         {t('footer.tagline', 'Themis Adjuster AI · Built for faster, fairer claims')}
+        <span className="mt-1 flex items-center justify-center gap-3" data-print-hide>
+          <a href="#/demo" className="underline transition hover:text-[var(--fg)]">{t('footer.demo', 'Live demo')}</a>
+          <span aria-hidden="true">·</span>
+          <a href="#/security" className="underline transition hover:text-[var(--fg)]">{t('footer.security', 'Security')}</a>
+        </span>
       </footer>
+      </>
+      )}
     </div>
   )
 }
@@ -601,7 +644,7 @@ const PERIL_STYLE = {
 
 function ResultView({ report, loading, onGenerate, onBack, events = [], onExported, onSigned, onMarkdownUpdate }) {
   const { t } = useI18n()
-  const { dateTime } = useFormat()
+  const { dateTime, num } = useFormat()
   const a = report?.analysis || {}
   const conf = CONFIDENCE[a.confidence] || CONFIDENCE.low
   const perils = Array.isArray(a.perils) ? a.perils : []
@@ -669,6 +712,9 @@ function ResultView({ report, loading, onGenerate, onBack, events = [], onExport
           </div>
         )}
         <p className="mt-1 text-sm text-[var(--muted)]">{t('result.summary', 'AI-generated summary from your policy and photos.')}</p>
+        {report?.timing?.analyzeMs != null && (
+          <p className="tnum mt-1 text-xs text-[var(--muted)]">{t('result.took', 'This draft took {n}s').replace('{n}', num(Math.max(1, Math.round(report.timing.analyzeMs / 1000))))}</p>
+        )}
         {a.partial && (
           <p className="mt-2 rounded-xl border border-[var(--warn)]/40 bg-[var(--warn-soft)] px-4 py-2.5 text-[13px] text-[var(--warn)]">
             {t('result.partial', 'Partial inputs — attach the missing pieces for a complete draft.')}
