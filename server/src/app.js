@@ -194,7 +194,15 @@ export function createApp() {
         } else {
           waitlistSent = await sendBetaConfirmation(clean).then(() => 'sent').catch(e => `failed: ${e.message}`)
         }
-        notified = await sendAdminNotification({ ...clean, created }).then(() => 'sent').catch(e => `failed: ${e.message}`)
+        // Owner delivery line: tells the admin mail exactly what happened
+        // to the lead's magic link (metadata only — never the link itself).
+        const delivery = !grantAccess
+          ? { status: 'waitlisted' }
+          : mail.status === 'sent' ? { status: 'sent', provider: mail.provider }
+          : mail.status === 'queued' ? { status: 'queued', provider: mail.provider }
+          : mail.status === 'failed' ? { status: 'failed', error: mail.error }
+          : { status: 'skipped' }
+        notified = await sendAdminNotification({ ...clean, created, delivery }).then(() => 'sent').catch(e => `failed: ${e.message}`)
       } else {
         if (grantAccess) {
           const r = await grantAndSend(clean)

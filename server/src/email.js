@@ -166,7 +166,7 @@ Themis drafts documents for review — it is not a binding estimate and always r
 — Themis Adjuster AI`
 }
 
-export function adminNotificationHtml({ name, email, role, claimsPerMonth, created }) {
+export function adminNotificationHtml({ name, email, role, claimsPerMonth, created, delivery }) {
   const row = (label, value) => `
       <tr>
         <td style="padding:6px 12px 6px 0;font-family:${FONT};font-size:13px;color:${FAINT};white-space:nowrap;" valign="top">${label}</td>
@@ -180,18 +180,31 @@ export function adminNotificationHtml({ name, email, role, claimsPerMonth, creat
       ${row('Role', escapeHtml(role || '—'))}
       ${row('Claims/month', escapeHtml(claimsPerMonth || '—'))}
       ${row('Status', created ? 'new lead' : 'returning lead (updated)')}
+      ${row('Magic link', escapeHtml(deliveryLine(delivery)))}
     </table>`
   return shell(body, `New Themis beta request from ${name}`)
 }
 
-export function adminNotificationText({ name, email, role, claimsPerMonth, created }) {
+export function adminNotificationText({ name, email, role, claimsPerMonth, created, delivery }) {
   return `New Themis beta request
 
 Name: ${name}
 Email: ${email}
 Role: ${role || '—'}
 Claims/month: ${claimsPerMonth || '—'}
-Status: ${created ? 'new lead' : 'returning lead (updated)'}`
+Status: ${created ? 'new lead' : 'returning lead (updated)'}
+Magic link: ${deliveryLine(delivery)}`
+}
+
+// Delivery status for the owner: answers "is it handled" with metadata.
+// The link itself is NEVER included (bearer credential, see Top200 ruling).
+function deliveryLine(delivery) {
+  const d = delivery || {}
+  if (d.status === 'sent') return `sent via ${d.provider || 'mailer'}`
+  if (d.status === 'queued') return 'queued for retry (mailer down, link will send)'
+  if (d.status === 'waitlisted') return 'not minted — over beta cap (waitlisted)'
+  if (d.status === 'failed') return `FAILED — ${d.error || 'unknown mailer error'} (fallback link shown to user)`
+  return 'not attempted'
 }
 
 export async function sendBetaConfirmation({ name, email }) {

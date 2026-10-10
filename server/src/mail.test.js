@@ -16,6 +16,7 @@ import {
   suppress, unsuppress, eventLog, __reset, __forceDue,
 } from './queue.js'
 import { renderTemplate, TEMPLATE_TYPES } from './templates.js'
+import { adminNotificationHtml, adminNotificationText } from './email.js'
 
 before(() => { __reset() })
 
@@ -164,6 +165,27 @@ describe('queue', () => {
     const r = enqueue({ type: 'access', to: 'b@x.test', payload: {} })
     assert.equal(r.suppressed, true)
     assert.equal(unsuppress('b@x.test'), true)
+  })
+})
+
+describe('admin notification delivery row', () => {
+  const lead = { name: 'Jane', email: 'jane@claimsco.com', role: 'IA', claimsPerMonth: '40', created: true }
+  it('states sent with provider, never the link', () => {
+    const html = adminNotificationHtml({ ...lead, delivery: { status: 'sent', provider: 'gmail' } })
+    assert.match(html, /Magic link/)
+    assert.match(html, /sent via gmail/)
+    assert.ok(!html.includes('access/verify?token='))
+  })
+  it('states queued and failed honestly in both formats', () => {
+    const q = adminNotificationText({ ...lead, delivery: { status: 'queued' } })
+    assert.match(q, /queued for retry/)
+    const f = adminNotificationHtml({ ...lead, delivery: { status: 'failed', error: 'smtp-550 nope' } })
+    assert.match(f, /FAILED/)
+    assert.match(f, /smtp-550 nope/)
+  })
+  it('states waitlisted with no link minted', () => {
+    const t = adminNotificationText({ ...lead, delivery: { status: 'waitlisted' } })
+    assert.match(t, /not minted/)
   })
 })
 
