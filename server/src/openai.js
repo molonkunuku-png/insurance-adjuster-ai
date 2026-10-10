@@ -1,4 +1,5 @@
 import { config } from './config.js'
+import { buildGaps, buildPerils } from './engine.js'
 
 const API = 'https://api.openai.com/v1/chat/completions'
 
@@ -52,7 +53,20 @@ export async function analyzeDamageAndPolicy(images, policyText) {
   })
 
   try {
-    return JSON.parse(stripFences(content))
+    const parsed = JSON.parse(stripFences(content))
+    // Contract parity with the local engine: clamp confidence, default review,
+    // and attach deterministic gaps/perils so the UI never silently loses them.
+    const confidence = ['low', 'medium', 'high'].includes(parsed.confidence) ? parsed.confidence : 'low'
+    return {
+      coverage: String(parsed.coverage || ''),
+      damage: String(parsed.damage || ''),
+      estimatedValue: String(parsed.estimatedValue || ''),
+      nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps.map(String) : [],
+      confidence,
+      needsReview: parsed.needsReview !== false,
+      gaps: buildGaps(policyText, ''),
+      perils: buildPerils(policyText, ''),
+    }
   } catch {
     return {
       coverage: content.substring(0, 500),
@@ -90,10 +104,14 @@ const SYSTEM_ASK =
  */
 export async function askPolicy({ policyText, question, history = [] }) {
   const messages = [{ role: 'system', content: SYSTEM_ASK }]
+  // Validate history shape: only well-formed turns ride along, max 4.
+  // (The client sends { q, r }; accept legacy { q, response } too.)
   for (const h of (Array.isArray(history) ? history : []).slice(-4)) {
     if (!h || typeof h.q !== 'string') continue
-    messages.push({ role: 'user', content: `Question: ${h.q}` })
-    messages.push({ role: 'assistant', content: JSON.stringify(h.response ?? null) })
+    const prior = h.r ?? h.response
+    if (typeof prior === 'undefined') continue
+    messages.push({ role: 'user', content: `Question: ${String(h.q).slice(0, 1200)}` })
+    messages.push({ role: 'assistant', content: JSON.stringify(prior).slice(0, 4000) })
   }
   messages.push({
     role: 'user',
