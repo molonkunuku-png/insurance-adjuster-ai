@@ -374,7 +374,8 @@ export function createApp() {
     try {
       const { markdown, analysis, lang } = req.body || {}
       if (!markdown && !analysis) return res.status(400).json({ error: 'nothing to export', code: 'nothingExport' })
-      const buf = await buildDocx({ markdown: str(markdown, 60000), analysis: analysis || null, lang: lang === 'ms' ? 'ms' : 'en' })
+      const format = req.body?.format === 'compact' ? 'compact' : 'standard'
+      const buf = await buildDocx({ markdown: str(markdown, 60000), analysis: analysis || null, lang: lang === 'ms' ? 'ms' : 'en', format })
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
       res.setHeader('Content-Disposition', `attachment; filename="${exportFilename()}"`)
       res.send(buf)

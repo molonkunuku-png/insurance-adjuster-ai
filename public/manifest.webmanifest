@@ -1,0 +1,12 @@
+{
+  "name": "Themis Adjuster AI",
+  "short_name": "Themis",
+  "description": "Turn damage photos and a policy into an adjuster-ready draft for human review.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0d17",
+  "theme_color": "#12d9b0",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

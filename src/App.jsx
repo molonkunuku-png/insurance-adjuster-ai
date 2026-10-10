@@ -262,6 +262,27 @@ const CONFIDENCE = {
 // Module scope (not render): wall-clock stamps for draft-timing proof.
 const stampNow = () => Date.now()
 
+// Tamper-evident audit chain (Tier 26-lite): cyrb53 hash links each event
+// to the previous. Detects edits/reordering, not cryptographic proof.
+function chainEvents(events) {
+  let prev = 'GENESIS'
+  const h = (s) => {
+    let x = 0x811c9dc5
+    for (let i = 0; i < s.length; i++) {
+      x ^= s.charCodeAt(i)
+      x = Math.imul(x, 0x01000193) >>> 0
+    }
+    return x.toString(16).padStart(8, '0')
+  }
+  return events.map((e) => {
+    const at = new Date(e.at).toISOString()
+    const hash = h(`${prev}|${e.ev}|${at}`)
+    const row = { ev: e.ev, at, prev, hash }
+    prev = hash
+    return row
+  })
+}
+
 function App() {
   const { t, lang } = useI18n()
   const { dateTime } = useFormat()
@@ -388,7 +409,7 @@ function App() {
     window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' })
   }
 
-  const handleUpload = async ({ getImagesForAI, getPdfText, getNotes }) => {
+  const handleUpload = async ({ files, getImagesForAI, getPdfText, getNotes }) => {
     // Freemium gate (Tier 9): N free drafts per window, then teach upgrade.
     if (!canDraft()) {
       setPlanBlocked(true)
@@ -402,12 +423,17 @@ function App() {
     logEvent('started')
     const controller = new AbortController()
     abortRef.current = controller
+    // eslint-disable-next-line react(purity) -- event-handler timestamp, not render
     const t0 = stampNow()
     try {
       const images = await getImagesForAI()
       // PII never leaves the device: scrub contact patterns client-side.
       const pdfText = scrubPII(getPdfText())
-      const notes = scrubPII(getNotes())
+      const sevTags = (files?.damageImages || [])
+        .map((f, i) => (f.severity ? `[Photo ${i + 1}: ${f.severity}]` : null))
+        .filter(Boolean)
+        .join(' ')
+      const notes = scrubPII([getNotes(), sevTags].filter(Boolean).join('\n'))
       if (images.length === 0 && !notes.trim()) {
         setAppError(t('error.needInput', 'Add at least one damage photo or a short description of the damage'))
         setStep('upload')
@@ -723,7 +749,8 @@ function ResultView({ report, loading, onGenerate, onBack, events = [], onExport
   const downloadAudit = () => {
     const log = {
       generatedAt: new Date().toISOString(),
-      events: events.map(e => ({ ev: e.ev, at: new Date(e.at).toISOString() })),
+      chain: 'cyrb53-link-v1',
+      events: chainEvents(events),
       report: { confidence: a.confidence, needsReview: a.needsReview },
     }
     const blob = new Blob([JSON.stringify(log, null, 2)], { type: 'application/json' })

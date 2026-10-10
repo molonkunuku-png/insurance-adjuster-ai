@@ -24,6 +24,6 @@ export async function askPolicy(policyText, question, history = []) {
   return response
 }
 
-export async function exportDocx({ markdown, analysis, lang = 'en' }) {
-  return apiPostBlob('/api/export/docx', { markdown, analysis, lang })
+export async function exportDocx({ markdown, analysis, lang = 'en', format = 'standard' }) {
+  return apiPostBlob('/api/export/docx', { markdown, analysis, lang, format })
 }

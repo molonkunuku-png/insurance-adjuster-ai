@@ -301,12 +301,13 @@ function analysisBlock(analysis, lang = 'en') {
   return children
 }
 
-export async function buildDocx({ markdown, analysis, lang = 'en' }) {
+export async function buildDocx({ markdown, analysis, lang = 'en', format = 'standard' }) {
   const L = pickLang(lang)
+  const compact = format === 'compact'
   const children = []
   children.push(new Paragraph({
     alignment: AlignmentType.LEFT,
-    spacing: { after: 240 },
+    spacing: { after: compact ? 120 : 240 },
     children: [
       new TextRun({ text: 'Themis Adjuster AI', color: BRAND, bold: true }),
       new TextRun({ text: '   ·   Loss Report Draft', color: MUTED }),
@@ -315,7 +316,24 @@ export async function buildDocx({ markdown, analysis, lang = 'en' }) {
 
   const source = String(markdown || '')
   if (source.trim()) {
-    children.push(...markdownToDocx(source))
+    // Compact drops the human sign-off section (both languages); the
+    // disclaimer always stays — brevity never removes legal text.
+    let body = source
+    if (compact) {
+      const lines = body.split('\n')
+      const keep = []
+      let skipping = false
+      for (const line of lines) {
+        if (/^##\s+(Adjuster sign-off|Pengesahan penyelaras)\s*$/.test(line)) {
+          skipping = true
+          continue
+        }
+        if (skipping && /^##\s+/.test(line)) skipping = false
+        if (!skipping) keep.push(line)
+      }
+      body = keep.join('\n').trim()
+    }
+    children.push(...markdownToDocx(body))
     if (source.length > MAX_MARKDOWN) {
       children.push(new Paragraph({
         spacing: { before: 200 },

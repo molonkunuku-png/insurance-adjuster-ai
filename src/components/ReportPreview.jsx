@@ -16,6 +16,7 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
   const [signName, setSignName] = useState('')
   const [signNote, setSignNote] = useState('')
   const [signed, setSigned] = useState(null) // { name, at }
+  const [format, setFormat] = useState('standard')
   const markdown = report?.markdown
 
   // A regenerated draft is unsigned again: the old signature must never ride along.
@@ -62,7 +63,7 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
     setBusy('docx')
     setDocxError('')
     try {
-      const blob = await exportDocx({ markdown: report?.markdown, analysis: report?.analysis, lang })
+      const blob = await exportDocx({ markdown: report?.markdown, analysis: report?.analysis, lang, format })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -132,6 +133,13 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
               >
                 <Download size={12} /> .md
               </button>
+              <label className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--muted)]">
+                <span className="sr-only">{t('report.format', 'Format')}</span>
+                <select value={format} onChange={e => setFormat(e.target.value)} className="bg-transparent text-[11px] outline-none">
+                  <option value="standard">{t('report.formatStandard', 'Standard')}</option>
+                  <option value="compact">{t('report.formatCompact', 'Compact')}</option>
+                </select>
+              </label>
             </div>
           )}
           {docxError && (

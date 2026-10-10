@@ -13,7 +13,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
   const { num } = useFormat()
   const [files, setFiles] = useState(() => ({
     policyPdf: initial?.policy?.fileName ? { name: initial.policy.fileName } : null,
-    damageImages: (initial?.damageImages || []).map(d => ({ file: null, name: d.name || 'damage photo', base64: d.base64, type: d.type })),
+    damageImages: (initial?.damageImages || []).map(d => ({ file: null, name: d.name || 'damage photo', base64: d.base64, type: d.type, severity: d.severity || '' })),
   }))
   const [policy, setPolicy] = useState(() => ({
     status: initial?.policy?.status || 'idle',
@@ -33,7 +33,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
   const toSnap = () => ({
     notes,
     policy: { ...policy, error: '', fileName: files.policyPdf?.name || null },
-    damageImages: files.damageImages.map(f => ({ base64: f.base64, type: f.type, name: f.file?.name || f.name || t('upload.altPhoto', 'damage photo') })),
+      damageImages: files.damageImages.map(f => ({ base64: f.base64, type: f.type, name: f.file?.name || f.name || t('upload.altPhoto', 'damage photo'), severity: f.severity || '' })),
   })
   // Debounced snapshot (400ms) so keystrokes don't re-serialize megabytes of
   // image bytes; flushed synchronously on unmount (analyze click) so cancel
@@ -72,7 +72,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
       if (await containsEicar(file)) return { rejected: 'malware' }
       const base64 = await readAsBase64(file)
       const type = kind === 'jpg' ? 'image/jpeg' : kind === 'png' ? 'image/png' : kind === 'gif' ? 'image/gif' : 'image/webp'
-      return { file, name: file.name, base64, type }
+      return { file, name: file.name, base64, type, severity: '' }
     }))
     const incoming = results.filter(r => !r.rejected)
     const rejectedType = results.filter(r => r.rejected === 'type').length
@@ -173,6 +173,12 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
 
   const removeImage = idx =>
     setFiles(prev => ({ ...prev, damageImages: prev.damageImages.filter((_, i) => i !== idx) }))
+
+  const setSeverity = (idx, severity) =>
+    setFiles(prev => ({
+      ...prev,
+      damageImages: prev.damageImages.map((f, i) => (i === idx ? { ...f, severity } : f)),
+    }))
 
   const [armReset, setArmReset] = useState(false)
   const armTimer = useRef(null)
@@ -348,6 +354,18 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
                   >
                     <X size={11} />
                   </button>
+                  <select
+                    value={f.severity || ''}
+                    onChange={e => setSeverity(i, e.target.value)}
+                    aria-label={t('upload.severity', 'Severity')}
+                    onClick={e => e.stopPropagation()}
+                    className="absolute bottom-1 left-1 max-w-[calc(100%-0.5rem)] rounded-md bg-black/70 px-1 py-0.5 text-[10px] text-white outline-none transition focus:border-[var(--accent)]"
+                  >
+                    <option value="">{t('upload.severity', 'Severity')}</option>
+                    <option value="minor">{t('upload.sevMinor', 'Minor')}</option>
+                    <option value="moderate">{t('upload.sevModerate', 'Moderate')}</option>
+                    <option value="severe">{t('upload.sevSevere', 'Severe')}</option>
+                  </select>
                 </div>
               ))}
               <button
