@@ -73,7 +73,7 @@ async function viaResend(job) {
     return { ok: true, provider: 'resend' }
   } catch (e) {
     const msg = String(e?.message || e)
-    if (/only send testing|403|verified|policy/i.test(msg)) throw permanent(`resend-policy: ${msg.slice(0, 160)}`)
+    if (/only send testing|testing email|403|verified|policy/i.test(msg)) throw permanent(`resend-policy: ${msg.slice(0, 160)}`)
     throw new Error(`resend-retryable: ${msg.slice(0, 160)}`)
   }
 }
