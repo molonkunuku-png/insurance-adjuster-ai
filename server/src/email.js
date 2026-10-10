@@ -225,7 +225,7 @@ export async function sendAdminNotification(lead) {
   })
 }
 
-export function smtpConfigured() {
+export function resendConfigured() {
   return Boolean(config.resendKey)
 }
 

@@ -123,6 +123,7 @@ function splitLines(text) {
   const seen = new Set()
   for (const raw of String(text || '').split(/\r?\n/)) {
     // Strip control characters (pasted PDFs/OCR junk) before matching.
+    // eslint-disable-next-line no-control-regex -- intentional: strips pasted PDF/OCR control junk
     const line = raw.replace(/[\u0000-\u001F\u007F]+/g, '').trim()
     if (line) {
       const cleaned = line.replace(/[ \t]+/g, ' ').slice(0, 500)
@@ -306,7 +307,7 @@ export function localAsk({ policyText, question, history: _history = [] }) {
 
   if (scored.length === 0) {
     return {
-      answer: `I could not find language in the provided policy that directly addresses "${q}". A human adjuster should confirm against the full policy wording.`,
+      answer: `I could not find language in the provided policy that directly addresses "${q.slice(0, 200)}". A human adjuster should confirm against the full policy wording.`,
       grounded: false,
       citations: [],
       confidence: 'low',

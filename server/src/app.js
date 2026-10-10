@@ -9,10 +9,10 @@ import { config, isProd } from './config.js'
 import {
   saveBetaLead, listBetaLeads, dbMode, countInvited, approveLead,
   findLeadByTokenHash, findLeadByEmail, markLogin, revokeLead,
-  countByStatus, purgeExpiredTokens,
+  countByStatus,
 } from './db.js'
 import {
-  sendBetaConfirmation, sendBetaAccess, sendAdminNotification, smtpConfigured,
+  sendBetaConfirmation, sendBetaAccess, sendAdminNotification, resendConfigured,
 } from './email.js'
 import { analyzeDamageAndPolicy, generateReport, askPolicy } from './openai.js'
 import { localAnalyze, localAsk, localReport } from './engine.js'
@@ -100,7 +100,7 @@ export function createApp() {
     res.json({
       ok: true,
       db: dbMode(),
-      email: smtpConfigured(),
+      email: resendConfigured(),
       openai: config.usesOpenAI(),
       engine: config.usesOpenAI() ? 'openai' : 'local',
       auth: Boolean(config.sessionSecret),
@@ -169,7 +169,7 @@ export function createApp() {
       let notified = 'skipped'
       let accessUrl = null
 
-      if (smtpConfigured()) {
+      if (resendConfigured()) {
         if (grantAccess) {
           const r = await grantAndSend(clean)
           accessSent = r.emailSent ? 'sent' : `failed: ${r.error}`
@@ -207,14 +207,14 @@ export function createApp() {
       const lead = await findLeadByEmail(email)
       let accessUrl = null
       if (lead && (lead.status === 'invited' || lead.status === 'active')) {
-        if (smtpConfigured()) {
+        if (resendConfigured()) {
           await grantAndSend({ name: lead.name, email }).catch(() => {})
         } else {
           // No mailer (local dev): mint + return the link so sign-in works offline.
           const r = await grantAndSend({ name: lead.name, email })
           accessUrl = r.accessUrl
         }
-      } else if (lead && smtpConfigured()) {
+      } else if (lead && resendConfigured()) {
         await sendBetaConfirmation({ name: lead.name, email }).catch(() => {})
       }
       // Always respond the same (don't reveal whether the email exists)
@@ -307,30 +307,41 @@ export function createApp() {
   })
 
   // ---- admin ----
-  app.get('/api/admin/leads', requireAdmin, async (_req, res) => {
-    res.json({ leads: await listBetaLeads(), betaLimit: config.betaLimit })
+  app.get('/api/admin/leads', adminLimiter, requireAdmin, async (req, res) => {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 200)
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0)
+    res.json({ leads: await listBetaLeads(limit, offset), counts: await countByStatus(), betaLimit: config.betaLimit })
   })
 
-  app.post('/api/admin/invite', requireAdmin, async (req, res) => {
+  app.post('/api/admin/invite', adminLimiter, requireAdmin, async (req, res) => {
     try {
       const email = str(req.body?.email, 200).toLowerCase()
+      if (!isEmail(email)) return res.status(400).json({ error: 'A valid email is required' })
       const lead = await findLeadByEmail(email)
       if (!lead) return res.status(404).json({ error: 'Lead not found' })
-      if (smtpConfigured()) await grantAndSend({ name: lead.name, email })
+      if ((await countInvited()) >= config.betaLimit) {
+        return res.status(403).json({ error: 'Beta cap reached — raise BETA_LIMIT to invite more' })
+      }
+      if (resendConfigured()) await grantAndSend({ name: lead.name, email })
+      console.log(`[admin] invite email=${email} by=${req.ip}`)
       res.json({ ok: true, email })
     } catch (e) {
-      console.error('[admin/invite] error:', e)
-      res.status(500).json({ error: e.message })
+      console.error('[admin/invite] error:', e.message)
+      res.status(500).json({ error: 'Invite failed' })
     }
   })
 
-  app.post('/api/admin/revoke', requireAdmin, async (req, res) => {
+  app.post('/api/admin/revoke', adminLimiter, requireAdmin, async (req, res) => {
     try {
       const email = str(req.body?.email, 200).toLowerCase()
       await revokeLead(email)
-      res.json({ ok: true, email })
+      console.log(`[admin] revoke ok by=${req.ip}`)
+      // Neutral response either way: with a valid admin secret the caller
+      // already passed the gate; nothing about other users leaks here.
+      res.json({ ok: true })
     } catch (e) {
-      res.status(500).json({ error: e.message })
+      console.error('[admin/revoke] error:', e.message)
+      res.status(500).json({ error: 'Revoke failed' })
     }
   })
 
