@@ -31,3 +31,23 @@ export async function sniffKind(file) {
 export function isImageKind(kind) {
   return kind === 'jpg' || kind === 'png' || kind === 'gif' || kind === 'webp'
 }
+
+// EICAR antivirus test string: safe to handle, must never pass validation.
+const EICAR = 'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'
+
+export async function containsEicar(file) {
+  try {
+    const buf = new Uint8Array(await file.arrayBuffer())
+    // Chunked decode keeps multi-MB files cheap; EICAR is 68 bytes so a
+    // 128-byte overlap guarantees no boundary miss.
+    const dec = new TextDecoder('utf-8', { fatal: false })
+    const STEP = 1 << 20
+    for (let i = 0; i < buf.length; i += STEP) {
+      const part = dec.decode(buf.slice(i, Math.min(i + STEP + 128, buf.length)), { stream: true })
+      if (part.includes(EICAR)) return true
+    }
+    return false
+  } catch {
+    return false
+  }
+}

@@ -174,7 +174,7 @@ export function createApp() {
   // ---- beta signup (auto-approves until the cap) ----
   app.post('/api/beta', betaLimiter, async (req, res) => {
     try {
-      const { name, email, role, claims, source, lang, company, volume } = req.body || {}
+      const { name, email, role, claims, source, lang, company, volume, budget, pilot } = req.body || {}
       const clean = {
         name: str(name, 120),
         email: str(email, 200).toLowerCase(),
@@ -184,6 +184,8 @@ export function createApp() {
         lang: lang === 'ms' ? 'ms' : 'en',
         company: str(company, 120),
         volume: str(volume, 20),
+        budget: str(budget, 40),
+        pilot: pilot === true || pilot === 'yes' ? 'yes' : '',
       }
       if (!clean.name) return res.status(400).json({ error: 'A name is required', code: 'badName' })
       if (!isEmail(clean.email)) {
@@ -318,6 +320,7 @@ export function createApp() {
         if (!img?.base64 || !img?.type) return res.status(400).json({ error: 'Malformed image payload', code: 'malformed' })
         if (String(img.base64).length > MAX_IMAGE_B64) return res.status(400).json({ error: 'Image too large (max ~8 MB per image)', code: 'tooLargeImg' })
         if (!looksLikeImage(img.base64)) return res.status(400).json({ error: 'Unsupported image encoding (JPEG, PNG, GIF, or WebP required)', code: 'badEncoding' })
+        if (bufferHasEicar(img.base64)) return res.status(400).json({ error: 'File blocked by the malware screen', code: 'malware' })
       }
       const policy = str(policyText, 20000)
       // With no key we run fully on the deterministic local engine — no AI bills.
@@ -608,6 +611,15 @@ function str(v, max) {
 // Tighter than the bare minimum: local part ≤64, domain has a 2+ char TLD.
 function isEmail(v) {
   return /^[^\s@]{1,64}@[^\s@]{1,253}\.[^\s@]{2,}$/.test(String(v || ''))
+}
+
+const EICAR = 'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'
+function bufferHasEicar(b64) {
+  try {
+    return Buffer.from(String(b64 || '').split(',').slice(-1)[0], 'base64').toString('latin1').includes(EICAR)
+  } catch {
+    return false
+  }
 }
 
 // Magic-byte allowlist for data-URL image uploads: JPEG, PNG, GIF, WebP.

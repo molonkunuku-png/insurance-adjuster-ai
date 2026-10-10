@@ -1,7 +1,35 @@
-import React from 'react'
-import { ShieldCheck, ArrowLeft, FileText, Camera, Scale } from 'lucide-react'
-import { useI18n } from '../i18n'
+import React, { useState } from 'react'
+import { ShieldCheck, ArrowLeft, FileText, Camera, Scale, Calculator } from 'lucide-react'
+import { useI18n, useFormat } from '../i18n'
 import Mascot from './Mascot'
+
+function RoiCalc() {
+  const { t } = useI18n()
+  const { num } = useFormat()
+  const [reports, setReports] = useState(40)
+  const [rate, setRate] = useState(75)
+  const saved = Math.round(reports * 0.75 * rate)
+  return (
+    <div className="surface mt-6 p-5">
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        <Calculator size={16} className="text-[var(--amber)]" /> {t('roi.title', 'What is 45 minutes per report worth?')}
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <label className="block text-xs text-[var(--muted)]">
+          {t('roi.reports', 'Reports per month')}
+          <input type="number" min={1} max={2000} value={reports} onChange={e => setReports(Math.max(1, Number(e.target.value) || 1))} className="input tnum mt-1" />
+        </label>
+        <label className="block text-xs text-[var(--muted)]">
+          {t('roi.rate', 'Hourly cost ($/hr)')}
+          <input type="number" min={1} max={2000} value={rate} onChange={e => setRate(Math.max(1, Number(e.target.value) || 1))} className="input tnum mt-1" />
+        </label>
+      </div>
+      <p className="tnum mt-3 text-center text-lg font-bold text-[var(--accent)]">
+        {t('roi.result', '≈ ${n}/mo in draft time').replace('{n}', num(saved))}
+      </p>
+    </div>
+  )
+}
 
 /**
  * Public zero-signup demo (Tier 5): a static, canned sample draft.
@@ -55,6 +83,7 @@ export default function DemoPage({ onBack }) {
           </div>
         </div>
         <p className="mt-4 text-center text-xs text-[var(--muted)]">{t('demo.note', 'Illustrative output. Your drafts cite your actual policy line by line.')}</p>
+        <RoiCalc />
       </main>
     </div>
   )

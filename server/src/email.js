@@ -74,7 +74,7 @@ async function send(payload) {
   return data
 }
 
-export function adminNotificationHtml({ name, email, role, claimsPerMonth, created, delivery }) {
+export function adminNotificationHtml({ name, email, role, claimsPerMonth, created, delivery, company, volume, budget, pilot }) {
   const row = (label, value) => `
       <tr>
         <td style="padding:6px 12px 6px 0;font-family:${FONT};font-size:13px;color:${FAINT};white-space:nowrap;" valign="top">${label}</td>
@@ -87,19 +87,27 @@ export function adminNotificationHtml({ name, email, role, claimsPerMonth, creat
       ${row('Email', escapeHtml(email))}
       ${row('Role', escapeHtml(role || '—'))}
       ${row('Claims/month', escapeHtml(claimsPerMonth || '—'))}
+      ${row('Company', escapeHtml(company || '—'))}
+      ${row('Volume', escapeHtml(volume || '—'))}
+      ${row('Budget', escapeHtml(budget || '—'))}
+      ${row('Pilot interest', pilot === 'yes' ? 'YES' : '—')}
       ${row('Status', created ? 'new lead' : 'returning lead (updated)')}
       ${row('Magic link', escapeHtml(deliveryLine(delivery)))}
     </table>`
   return shell(body, `New Themis beta request from ${name}`)
 }
 
-export function adminNotificationText({ name, email, role, claimsPerMonth, created, delivery }) {
+export function adminNotificationText({ name, email, role, claimsPerMonth, created, delivery, company, volume, budget, pilot }) {
   return `New Themis beta request
 
 Name: ${name}
 Email: ${email}
 Role: ${role || '—'}
 Claims/month: ${claimsPerMonth || '—'}
+Company: ${company || '—'}
+Volume: ${volume || '—'}
+Budget: ${budget || '—'}
+Pilot interest: ${pilot === 'yes' ? 'YES' : '—'}
 Status: ${created ? 'new lead' : 'returning lead (updated)'}
 Magic link: ${deliveryLine(delivery)}`
 }

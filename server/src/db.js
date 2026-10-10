@@ -52,6 +52,8 @@ ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS invited_at TIMESTAMPTZ;
 ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS lang TEXT;
 ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS company TEXT;
 ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS volume TEXT;
+ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS budget TEXT;
+ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS pilot TEXT;
 ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
 ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS uses INTEGER NOT NULL DEFAULT 0;
 
@@ -95,10 +97,12 @@ export async function initDb() {
   timer.unref?.()
 }
 
-export async function saveBetaLead({ name, email, role, claimsPerMonth, source, lang, company, volume }) {
+export async function saveBetaLead({ name, email, role, claimsPerMonth, source, lang, company, volume, budget, pilot }) {
   const cleanLang = lang === 'ms' ? 'ms' : 'en'
   const cleanCompany = String(company || '').slice(0, 120)
   const cleanVolume = String(volume || '').slice(0, 20)
+  const cleanBudget = String(budget || '').slice(0, 40)
+  const cleanPilot = pilot === true || pilot === 'yes' ? 'yes' : ''
   if (useMemory) {
     const existing = memory.betaLeads.find(l => l.email.toLowerCase() === email.toLowerCase())
     if (existing) {
@@ -108,6 +112,8 @@ export async function saveBetaLead({ name, email, role, claimsPerMonth, source, 
       existing.lang = cleanLang
       existing.company = cleanCompany
       existing.volume = cleanVolume
+      existing.budget = cleanBudget
+      existing.pilot = cleanPilot
       return { lead: existing, created: false }
     }
     const lead = {
@@ -120,6 +126,8 @@ export async function saveBetaLead({ name, email, role, claimsPerMonth, source, 
       lang: cleanLang,
       company: cleanCompany,
       volume: cleanVolume,
+      budget: cleanBudget,
+      pilot: cleanPilot,
       status: 'pending',
       accessTokenHash: null,
       tokenExpiresAt: null,
@@ -133,14 +141,15 @@ export async function saveBetaLead({ name, email, role, claimsPerMonth, source, 
   }
 
   const res = await pool.query(
-    `INSERT INTO beta_leads (name, email, role, claims_per_month, source, lang, company, volume)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO beta_leads (name, email, role, claims_per_month, source, lang, company, volume, budget, pilot)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      ON CONFLICT (lower(email))
      DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role,
                    claims_per_month = EXCLUDED.claims_per_month, lang = EXCLUDED.lang,
-                   company = EXCLUDED.company, volume = EXCLUDED.volume
+                   company = EXCLUDED.company, volume = EXCLUDED.volume,
+                   budget = EXCLUDED.budget, pilot = EXCLUDED.pilot
      RETURNING id, name, email, role, claims_per_month, status, lang, created_at, (xmax = 0) AS created`,
-    [name, email, role || null, claimsPerMonth || null, source || 'themis-beta', cleanLang, cleanCompany || null, cleanVolume || null]
+    [name, email, role || null, claimsPerMonth || null, source || 'themis-beta', cleanLang, cleanCompany || null, cleanVolume || null, cleanBudget || null, cleanPilot || null]
   )
   const row = res.rows[0]
   return { lead: row, created: row.created }
@@ -312,6 +321,7 @@ export async function listBetaLeads(limit = 200, offset = 0) {
     id: l.id, name: l.name, email: l.email, role: l.role ?? null,
     claims_per_month: l.claimsPerMonth ?? l.claims_per_month ?? null,
     company: l.company ?? null, volume: l.volume ?? null,
+    budget: l.budget ?? null, pilot: l.pilot ?? null,
     status: l.status, created_at: l.createdAt ?? l.created_at,
     invited_at: l.invitedAt ?? l.invited_at ?? null,
     last_login_at: l.lastLoginAt ?? l.last_login_at ?? null,
@@ -319,7 +329,7 @@ export async function listBetaLeads(limit = 200, offset = 0) {
   })
   if (useMemory) return memory.betaLeads.slice(off, off + lim).map(project)
   const res = await pool.query(
-    `SELECT id, name, email, role, claims_per_month, status, company, volume, created_at, invited_at, last_login_at, uses
+    `SELECT id, name, email, role, claims_per_month, status, company, volume, budget, pilot, created_at, invited_at, last_login_at, uses
      FROM beta_leads ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
     [lim, off]
   )

@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { extractPdfText, renderPdfPages } from '../lib/pdf'
 import { devLog } from '../lib/api'
-import { sniffKind, isImageKind, MAX_IMAGE_BYTES, MAX_PDF_BYTES } from '../lib/files'
+import { sniffKind, isImageKind, containsEicar, MAX_IMAGE_BYTES, MAX_PDF_BYTES } from '../lib/files'
 import { useI18n, useFormat } from '../i18n'
 
 function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent = null }) {
@@ -69,6 +69,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
       const kind = await sniffKind(file)
       if (!isImageKind(kind)) return { rejected: 'type' }
       if (file.size > MAX_IMAGE_BYTES) return { rejected: 'size' }
+      if (await containsEicar(file)) return { rejected: 'malware' }
       const base64 = await readAsBase64(file)
       const type = kind === 'jpg' ? 'image/jpeg' : kind === 'png' ? 'image/png' : kind === 'gif' ? 'image/gif' : 'image/webp'
       return { file, name: file.name, base64, type }
@@ -76,10 +77,12 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
     const incoming = results.filter(r => !r.rejected)
     const rejectedType = results.filter(r => r.rejected === 'type').length
     const rejectedSize = results.filter(r => r.rejected === 'size').length
-    if (rejectedType + rejectedSize > 0) {
+    const rejectedMalware = results.filter(r => r.rejected === 'malware').length
+    if (rejectedType + rejectedSize + rejectedMalware > 0) {
       setNotice(
         [rejectedType > 0 ? t('upload.rejectedType', 'Some files were skipped: JPEG, PNG, GIF, or WebP images only.') : null,
-         rejectedSize > 0 ? t('upload.tooLarge', 'Some images exceed the 10 MB limit and were skipped.') : null]
+         rejectedSize > 0 ? t('upload.tooLarge', 'Some images exceed the 10 MB limit and were skipped.') : null,
+         rejectedMalware > 0 ? t('upload.eicar', 'A file was blocked by the malware screen.') : null]
           .filter(Boolean).join(' ')
       )
     } else {
@@ -110,6 +113,12 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
     if ((await sniffKind(file)) !== 'pdf') {
       setFiles(prev => ({ ...prev, policyPdf: file }))
       setPolicy({ status: 'error', text: '', images: [], numPages: 0, truncated: false, error: t('upload.pdfBadMagic', 'That file is not a readable PDF. Try a different file.') })
+      onPolicyEvent?.('policyError')
+      return
+    }
+    if (await containsEicar(file)) {
+      setFiles(prev => ({ ...prev, policyPdf: file }))
+      setPolicy({ status: 'error', text: '', images: [], numPages: 0, truncated: false, error: t('upload.eicar', 'A file was blocked by the malware screen.') })
       onPolicyEvent?.('policyError')
       return
     }

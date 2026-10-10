@@ -1,0 +1,44 @@
+# Render blueprint (Tier 9 staging-parity): single Web Service + Postgres,
+# infrastructure as code so staging mirrors prod with zero config drift.
+services:
+  - type: web
+    name: insurance-adjuster-ai1
+    runtime: node
+    buildCommand: npm install && npm run build && cd server && npm install
+    startCommand: node server/src/index.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: APP_URL
+        value: https://insurance-adjuster-ai1.onrender.com
+      - key: PUBLIC_API_URL
+        value: https://insurance-adjuster-ai1.onrender.com
+      - key: DATABASE_URL
+        fromDatabase:
+          name: themis-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: ADMIN_SECRET
+        generateValue: true
+      - key: BETA_LIMIT
+        value: 10
+      - key: TOKEN_TTL_DAYS
+        value: 2
+      - key: SESSION_TTL_DAYS
+        value: 7
+      - key: DAILY_ANALYSIS_CAP
+        value: 25
+      # Mail engine (set these — see docs/owner-checklist.md):
+      # - key: GMAIL_USER
+      # - key: GMAIL_APP_PASSWORD
+      # - key: MAIL_FROM
+      # - key: TELEGRAM_BOT_TOKEN
+      # - key: TELEGRAM_BOT_NAME
+      # - key: RESEND_API_KEY
+      # - key: CONTACT_EMAIL
+databases:
+  - name: themis-db
+    databaseName: themis
+    plan: free

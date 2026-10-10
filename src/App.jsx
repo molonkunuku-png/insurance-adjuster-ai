@@ -15,6 +15,7 @@ import Mascot from './components/Mascot'
 import AskPanel from './components/AskPanel'
 import { analyzeDamageAndPolicy, generateReport } from './lib/ai'
 import { scrubPII } from './lib/privacy'
+import { usageStatus, canDraft, recordDraft, FREE_REPORTS_PER_WINDOW } from './lib/plan'
 import { apiGet, apiPost, apiErrorMessage, devLog } from './lib/api'
 import { I18nProvider, useI18n, useFormat, LANGS } from './i18n'
 import { SAMPLE_POLICY, SAMPLE_NOTES, makeSampleImages } from './lib/sample'
@@ -100,8 +101,26 @@ function ThemeToggle({ theme, onSelect }) {
   )
 }
 
-function TelegramPair() {
+function FooterStatus() {
   const { t } = useI18n()
+  const [ok, setOk] = useState(null)
+  useEffect(() => {
+    let live = true
+    apiGet('/api/health').then(
+      (h) => { if (live) setOk(Boolean(h?.ok)) },
+      () => { if (live) setOk(false) }
+    )
+    return () => { live = false }
+  }, [])
+  return (
+    <span className="mt-1 flex items-center justify-center gap-1.5" data-print-hide>
+      <span className={`inline-block h-1.5 w-1.5 rounded-full ${ok === null ? 'bg-[var(--muted)]' : ok ? 'bg-[var(--success)]' : 'bg-[var(--danger)]'}`} />
+      <span>{ok === null ? t('footer.opsCheck', 'Checking status…') : ok ? t('footer.opsOk', 'All systems operational') : t('footer.opsCheck', 'Checking status…')}</span>
+    </span>
+  )
+}
+
+function TelegramPair() {  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [code, setCode] = useState(null)
   const [bot, setBot] = useState(null)
@@ -256,6 +275,10 @@ function App() {
   const [accessStatus, setAccessStatus] = useState(null)
   const [gateMode, setGateMode] = useState('signup') // signup | signin
   const [appError, setAppError] = useState('')
+  const [planBlocked, setPlanBlocked] = useState(false)
+  const [carrierBrand, setCarrierBrand] = useState(() => {
+    try { return localStorage.getItem('themis-brand') || '' } catch { return '' }
+  })
   // Public routes (no auth): #/demo zero-signup sample, #/security trust page.
   useEffect(() => {
     const onHash = () => setRoute(window.location.hash)
@@ -366,6 +389,13 @@ function App() {
   }
 
   const handleUpload = async ({ getImagesForAI, getPdfText, getNotes }) => {
+    // Freemium gate (Tier 9): N free drafts per window, then teach upgrade.
+    if (!canDraft()) {
+      setPlanBlocked(true)
+      setStep('upload')
+      return
+    }
+    setPlanBlocked(false)
     setStep('analyzing')
     setLoading(true)
     setAppError('')
@@ -386,8 +416,8 @@ function App() {
       logEvent('inputs')
       const analysis = await analyzeDamageAndPolicy(images, pdfText, notes, { signal: controller.signal })
       const analyzeMs = Math.round(stampNow() - t0)
-      setReport({ analysis, policyText: pdfText || '', timing: { analyzeMs } })
-      recordTiming(analyzeMs)
+      setReport({ analysis, policyText: pdfText || '' , timing: { analyzeMs } })
+      recordDraft()
       setStep('result')
       logEvent('analysis')
       scrollTop()
@@ -499,6 +529,13 @@ function App() {
                 uploadKey={uploadKey}
                 onSnap={handleSnap}
                 onPolicyEvent={(ev) => logEvent(ev)}
+                planBlocked={planBlocked}
+                onBackToUpload={() => setPlanBlocked(false)}
+                carrierBrand={carrierBrand}
+                onBrand={(v) => {
+                  setCarrierBrand(v)
+                  try { localStorage.setItem('themis-brand', v) } catch { /* ignore */ }
+                }}
                 resume={pendingResume && snapIsEmpty(snap) ? pendingResume : null}
                 discardArmed={armDiscard}
                 onContinueResume={() => {
@@ -531,6 +568,7 @@ function App() {
                 onGenerate={handleGenerate}
                 onBack={() => { setStep('upload'); setReport(null); }}
                 events={events}
+                carrierBrand={carrierBrand}
                 onExported={() => logEvent('docx')}
                 onSigned={() => logEvent('signed')}
                 onMarkdownUpdate={(markdown) => setReport(r => (r ? { ...r, markdown } : r))}
@@ -542,6 +580,7 @@ function App() {
 
       <footer className="border-t border-[var(--line)] px-4 py-6 text-center text-xs leading-relaxed text-[var(--muted)] text-balance">
         {t('footer.tagline', 'Themis Adjuster AI · Built for faster, fairer claims')}
+        <FooterStatus />
         <span className="mt-1 flex items-center justify-center gap-3" data-print-hide>
           <a href="#/demo" className="underline transition hover:text-[var(--fg)]">{t('footer.demo', 'Live demo')}</a>
           <span aria-hidden="true">·</span>
@@ -554,8 +593,9 @@ function App() {
   )
 }
 
-function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, onPolicyEvent, resume, discardArmed, onContinueResume, onDiscardResume, dateTime }) {
+function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, onPolicyEvent, resume, discardArmed, onContinueResume, onDiscardResume, dateTime, planBlocked, onBackToUpload, carrierBrand, onBrand }) {
   const { t } = useI18n()
+  const left = usageStatus().remaining
   return (
     <div>
       <div className="fade-in mx-auto max-w-2xl text-center" style={{ animationDelay: '0ms' }}>
@@ -578,6 +618,19 @@ function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, onPolicyEvent
       </div>
 
       <div className="fade-in mt-9" style={{ animationDelay: '90ms' }}>
+        {planBlocked ? (
+          <div className="surface p-6 text-center" role="alert">
+            <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[var(--warn-soft)] text-[var(--warn)]">
+              <Lock size={22} />
+            </div>
+            <div className="mt-3 text-base font-bold">{t('plan.limitTitle', 'Free draft limit reached')}</div>
+            <p className="mx-auto mt-1 max-w-sm text-sm text-[var(--muted)]">{t('plan.limitBody', "You've used {n} free drafts this month. Reply to your invite email to raise your limit.").replace('{n}', FREE_REPORTS_PER_WINDOW)}</p>
+            <button onClick={onBackToUpload} className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-4 py-2 text-sm text-[var(--muted)] transition hover:text-[var(--fg)]">
+              {t('plan.back', 'Back')}
+            </button>
+          </div>
+        ) : (
+        <>
         {resume && (
           <div className="surface mb-4 flex flex-col items-start gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
@@ -602,6 +655,21 @@ function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, onPolicyEvent
           </div>
         )}
         <FileUpload key={uploadKey} initial={snap} onSnapshot={onSnap} onPolicyEvent={onPolicyEvent} onUpload={onUpload} />
+        <div className="mt-3 flex flex-col items-center justify-between gap-2 sm:flex-row">
+          <span className="tnum inline-flex items-center gap-1.5 rounded-full bg-[var(--bg-2)] px-2.5 py-1 text-[11px] text-[var(--muted)]">
+            {t('plan.left', '{n} free drafts left').replace('{n}', left)}
+          </span>
+          <label className="flex w-full items-center gap-2 text-[11px] text-[var(--muted)] sm:w-auto">
+            <span className="whitespace-nowrap">{t('brand.label', 'Letterhead (optional)')}</span>
+            <input
+              value={carrierBrand}
+              onChange={e => onBrand(e.target.value)}
+              placeholder={t('brand.ph', 'Carrier / agency name for reports')}
+              maxLength={80}
+              className="input w-full py-1.5 text-xs sm:w-52"
+            />
+          </label>
+        </div>
         <button
           onClick={onSample}
           className="mt-3 inline-flex w-full flex-wrap items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--line)] px-5 py-2.5 text-center text-sm text-[var(--muted)] transition hover:border-[var(--grape)] hover:text-[var(--grape)]"
@@ -609,6 +677,8 @@ function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, onPolicyEvent
           <span className="inline-flex min-w-0 items-center gap-2 break-words"><Sparkles size={15} /> {t('sample.button', 'Try a sample claim')}</span>
           <span className="min-w-0 text-xs opacity-70 break-words">{t('sample.sub', 'No uploads needed — see a full draft in seconds.')}</span>
         </button>
+        </>
+        )}
       </div>
 
       <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -642,7 +712,7 @@ const PERIL_STYLE = {
   lightning: { cls: 'peril-structural', Icon: Zap },
 }
 
-function ResultView({ report, loading, onGenerate, onBack, events = [], onExported, onSigned, onMarkdownUpdate }) {
+function ResultView({ report, loading, onGenerate, onBack, events = [], onExported, onSigned, onMarkdownUpdate, carrierBrand = '' }) {
   const { t } = useI18n()
   const { dateTime, num } = useFormat()
   const a = report?.analysis || {}
@@ -667,7 +737,7 @@ function ResultView({ report, loading, onGenerate, onBack, events = [], onExport
   return (
     <div>
       <div className="print-only mb-4 border-b-2 border-black pb-3">
-        <div className="text-lg font-bold">Themis Adjuster AI · {t('report.title', 'Loss report')}</div>
+        <div className="text-lg font-bold">{carrierBrand ? `${carrierBrand} · ` : ''}Themis Adjuster AI · {t('report.title', 'Loss report')}</div>
         <div className="text-xs">{t('report.draft', 'Draft — not the final report')}</div>
       </div>
       <div className="fade-in flex items-center justify-between" data-print-hide>
@@ -764,7 +834,7 @@ function ResultView({ report, loading, onGenerate, onBack, events = [], onExport
         )}
       </div>
 
-      <ReportPreview report={report} onGenerate={onGenerate} loading={loading} onExported={onExported} onSigned={onSigned} onMarkdownUpdate={onMarkdownUpdate} />
+      <ReportPreview report={report} onGenerate={onGenerate} loading={loading} onExported={onExported} onSigned={onSigned} onMarkdownUpdate={onMarkdownUpdate} carrierBrand={carrierBrand} />
 
       <div className="surface fade-in mt-6 p-5" style={{ animationDelay: '240ms' }}>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">

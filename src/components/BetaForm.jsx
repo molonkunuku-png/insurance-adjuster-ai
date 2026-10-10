@@ -10,9 +10,17 @@ const ROLES = [
   { value: 'Other', key: 'role.other' },
 ]
 
+const BUDGETS = [
+  { value: 'Under $500/mo', key: 'wtp.b0' },
+  { value: '$500–2k/mo', key: 'wtp.b1' },
+  { value: '$2k–10k/mo', key: 'wtp.b2' },
+  { value: '$10k+/mo', key: 'wtp.b3' },
+  { value: 'Enterprise pilot', key: 'wtp.b4' },
+]
+
 export default function BetaForm() {
   const { t, lang } = useI18n()
-  const [form, setForm] = useState({ name: '', email: '', role: ROLES[0].value, claims: '', company: '', volume: '' })
+  const [form, setForm] = useState({ name: '', email: '', role: ROLES[0].value, claims: '', company: '', volume: '', budget: '', pilot: false })
   const [status, setStatus] = useState('idle') // idle | sending | done | error
   const [granted, setGranted] = useState(false)
   const [accessUrl, setAccessUrl] = useState(null)
@@ -159,6 +167,23 @@ export default function BetaForm() {
           <Field label={t('beta.volume', 'Claims / month (optional)')}>
             <input inputMode="numeric" value={form.volume} onChange={e => setForm({ ...form, volume: e.target.value })} placeholder={t('beta.volumePh', 'e.g. 200')} maxLength={20} className="input" />
           </Field>
+        </div>
+        <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2">
+          <Field label={t('wtp.budget', 'Tool budget (optional)')}>
+            <select value={form.budget} onChange={e => setForm({ ...form, budget: e.target.value })} className="input min-w-0 text-[13px] sm:text-sm">
+              <option value="">{t('wtp.none', 'Prefer not to say')}</option>
+              {BUDGETS.map(b => <option key={b.value} value={b.value}>{t(b.key, b.value)}</option>)}
+            </select>
+          </Field>
+          <label className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-3 py-2 text-[13px] text-[var(--muted)] transition hover:text-[var(--fg)]">
+            <input
+              type="checkbox"
+              checked={form.pilot}
+              onChange={e => setForm({ ...form, pilot: e.target.checked })}
+              className="h-4 w-4 flex-shrink-0 accent-[var(--accent)]"
+            />
+            <span className="min-w-0 leading-snug">{t('wtp.pilot', "I'm interested in a paid pilot")}</span>
+          </label>
         </div>
 
         {status === 'error' && (
