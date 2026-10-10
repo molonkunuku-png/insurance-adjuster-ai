@@ -8,7 +8,7 @@ import { useI18n, useFormat } from '../i18n'
 
 function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMarkdownUpdate }) {
   const { t, lang } = useI18n()
-  const { dateTime } = useFormat()
+  const { dateTime, num } = useFormat()
   const [showRaw, setShowRaw] = useState(false)
   const [busy, setBusy] = useState(null) // 'docx' | null
   const [signName, setSignName] = useState('')
@@ -100,7 +100,7 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
             )}
           </div>
           {markdown && (
-            <div className="flex items-center gap-2" data-print-hide>
+            <div className="flex min-w-0 flex-wrap items-center gap-2" data-print-hide>
               <button
                 onClick={() => setShowRaw(v => !v)}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--fg)]"
@@ -174,11 +174,11 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
 
       {markdown && (
         <div className="surface fade-in mt-4 p-5">
-          <div className="mb-3 flex items-center gap-2 text-[var(--muted)]">
+          <div className="mb-3 flex min-w-0 flex-wrap items-center gap-2 text-[var(--muted)]">
             <PenLine size={15} />
-            <span className="text-[11px] font-semibold uppercase tracking-wider">{t('sign.title', 'Adjuster notes & sign-off')}</span>
+            <span className="min-w-0 text-[11px] font-semibold uppercase tracking-wider text-balance">{t('sign.title', 'Adjuster notes & sign-off')}</span>
             {signed && (
-              <span className="badge lifecycle-approved ml-auto">
+              <span className="badge lifecycle-approved ml-auto min-w-0 max-w-full break-words text-left">
                 <Mascot size={16} mood="happy" decorative />
                 <CheckCircle2 size={11} /> {t('sign.signed', 'Signed')} · {signed.name} · {dateTime(signed.at)}
               </span>
@@ -194,7 +194,7 @@ function ReportPreview({ report, onGenerate, loading, onExported, onSigned, onMa
                 placeholder={t('sign.notesPh', 'Adjuster comments on the draft…')}
                 className="w-full resize-y rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-3 py-2 text-sm text-[var(--fg)] outline-none transition placeholder:text-[var(--muted)]/60 focus:border-[var(--accent)]"
               />
-              <div className="tnum text-right text-[10px] text-[var(--muted)]">{signNote.length}/2000</div>
+              <div className="tnum text-right text-[10px] text-[var(--muted)]">{num(signNote.length)}/2000</div>
               <div className="flex gap-2">
                 <input
                   value={signName}

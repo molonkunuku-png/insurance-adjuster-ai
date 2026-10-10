@@ -29,6 +29,13 @@ export function apiPost(path, body, { signal } = {}) {
   })
 }
 
+/** Map server error codes (code: 'badEmail', …) to translated strings. */
+export function apiErrorMessage(err, t, fallback) {
+  const code = err?.data?.code
+  if (code && /^[a-zA-Z]+$/.test(code)) return t(`error.${code}`, err?.message || fallback)
+  return err?.message || fallback
+}
+
 // POST that returns a binary attachment (e.g. .docx). Errors come back as JSON.
 export async function apiPostBlob(path, body) {
   const res = await fetch(`${API_BASE}${path}`, {

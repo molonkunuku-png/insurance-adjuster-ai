@@ -32,7 +32,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
   const toSnap = () => ({
     notes,
     policy: { ...policy, error: '', fileName: files.policyPdf?.name || null },
-    damageImages: files.damageImages.map(f => ({ base64: f.base64, type: f.type, name: f.file?.name || f.name || 'damage photo' })),
+    damageImages: files.damageImages.map(f => ({ base64: f.base64, type: f.type, name: f.file?.name || f.name || t('upload.altPhoto', 'damage photo') })),
   })
   // Debounced snapshot (400ms) so keystrokes don't re-serialize megabytes of
   // image bytes; flushed synchronously on unmount (analyze click) so cancel
@@ -136,7 +136,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
       console.error('[pdf] extraction failed', e)
       setProgress(null)
       onPolicyEvent?.('policyError')
-      setPolicy({ status: 'error', text: '', images: [], numPages: 0, truncated: false, error: e.message || 'Failed to read PDF. Try again or use a text-based PDF.' })
+      setPolicy({ status: 'error', text: '', images: [], numPages: 0, truncated: false, error: t('error.pdf.fallback', 'Failed to read PDF. Try again or use a text-based PDF.') })
     }
   }, [t, onPolicyEvent])
 
@@ -271,7 +271,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
           {files.policyPdf && policy.status === 'ready' && (
             <>
               <div className="text-sm font-semibold text-[var(--accent)]">{t('upload.policy.ready', 'Policy parsed')}</div>
-              <div className="mt-0.5 max-w-[14rem] truncate text-xs text-[var(--muted)]">{files.policyPdf.name}</div>
+              <div className="mt-0.5 max-w-full break-all text-xs text-[var(--muted)] line-clamp-2">{files.policyPdf.name}</div>
               <div className="tnum mt-1 text-[11px] text-[var(--muted)]">
                 {num(policy.numPages)} {policy.numPages > 1 ? t('upload.pages', 'pages') : t('upload.page', 'page')} · {num(policy.text.length)} {t('upload.chars', 'chars')}{policy.truncated ? ` ${t('upload.truncatedNote', '(first 30 pages)')}` : ''}
               </div>
@@ -280,7 +280,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
           {files.policyPdf && policy.status === 'scanned' && (
             <>
               <div className="text-sm font-semibold text-[var(--accent)]">{t('upload.policy.scanned', 'Scanned policy')}</div>
-              <div className="mt-0.5 max-w-[14rem] truncate text-xs text-[var(--muted)]">{files.policyPdf.name}</div>
+              <div className="mt-0.5 max-w-full break-all text-xs text-[var(--muted)] line-clamp-2">{files.policyPdf.name}</div>
               <div className="tnum mt-1 text-[11px] text-[var(--muted)]">{t('upload.scannedNoText', 'no text layer')} · {t('upload.sending', 'sending')} {policy.images.length} {policy.images.length > 1 ? t('upload.pageImages', 'page images') : t('upload.pageImage', 'page image')}</div>
             </>
           )}
@@ -326,7 +326,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
             <div className="grid grid-cols-2 gap-2 min-[400px]:grid-cols-3">
               {files.damageImages.map((f, i) => (
                 <div key={i} className="group relative aspect-square overflow-hidden rounded-xl border border-[var(--line)]">
-                  <img src={f.base64} alt={f.file?.name || f.name || 'damage photo'} loading="lazy" className="h-full w-full object-cover" />
+                  <img src={f.base64} alt={f.file?.name || f.name || t('upload.altPhoto', 'damage photo')} loading="lazy" className="h-full w-full object-cover" />
                   <button
                     type="button"
                     onClick={() => removeImage(i)}
@@ -371,7 +371,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
           placeholder={t('upload.notesPh', 'e.g. Hail took shingles off the back slope; two windows cracked; gutters dented — moderate.')}
           className="w-full resize-y rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-3 py-2 text-sm text-[var(--fg)] outline-none transition placeholder:text-[var(--muted)]/60 focus:border-[var(--accent)]"
         />
-        <div className="tnum mt-1 text-right text-[10px] text-[var(--muted)]">{notes.length}/2000</div>
+        <div className="tnum mt-1 text-right text-[10px] text-[var(--muted)]">{num(notes.length)}/2000</div>
       </div>
 
       {/* Footer / CTA */}
@@ -379,7 +379,7 @@ function FileUpload({ onUpload, initial = null, onSnapshot = null, onPolicyEvent
         <div className="flex items-center gap-3 text-xs text-[var(--muted)]">
           {files.damageImages.length > 0 && (
             <span className="tnum inline-flex items-center gap-1.5 rounded-full bg-[var(--bg-2)] px-2.5 py-1">
-              {files.damageImages.length} {files.damageImages.length > 1 ? t('upload.photos', 'photos') : t('upload.photo', 'photo')}
+              {num(files.damageImages.length)} {files.damageImages.length > 1 ? t('upload.photos', 'photos') : t('upload.photo', 'photo')}
             </span>
           )}
           {(files.policyPdf || files.damageImages.length > 0 || notes.trim()) && (

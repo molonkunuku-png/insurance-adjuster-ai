@@ -4,7 +4,8 @@ import {
   ChevronDown, FileText, Eye, EyeOff,
 } from 'lucide-react'
 import { askPolicy } from '../lib/ai'
-import { useI18n } from '../i18n'
+import { apiErrorMessage } from '../lib/api'
+import { useI18n, useFormat } from '../i18n'
 
 /**
  * Grounded policy Q&A — ask a question about the uploaded policy and get an
@@ -13,6 +14,7 @@ import { useI18n } from '../i18n'
  */
 export default function AskPanel({ policyText }) {
   const { t } = useI18n()
+  const { num } = useFormat()
   const CONF = {
     high: { cls: 'lifecycle-approved', label: t('ask.confH', 'High') },
     medium: { cls: 'lifecycle-reviewing', label: t('ask.confM', 'Medium') },
@@ -45,7 +47,7 @@ export default function AskPanel({ policyText }) {
       setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'nearest' }), 60)
     } catch (err) {
       console.error('[ask]', err)
-      setError(err.message || t('ask.failed', 'Ask failed — try again'))
+      setError(apiErrorMessage(err, t, t('ask.failed', 'Ask failed — try again')))
     } finally {
       setBusy(false)
     }
@@ -78,7 +80,7 @@ export default function AskPanel({ policyText }) {
       <div className="p-5">
         {thread.length === 0 && (
           <div className="rounded-xl border border-[var(--line)] bg-[var(--bg-2)] px-4 py-4 text-sm leading-relaxed text-[var(--muted)]">
-            {t('ask.emptyA', 'Ask a question about the policy — e.g.')} <span className="text-[var(--fg)]">"{t('ask.ex1', 'Is hail damage covered?')}"</span> or{' '}
+            {t('ask.emptyA', 'Ask a question about the policy — e.g.')} <span className="text-[var(--fg)]">"{t('ask.ex1', 'Is hail damage covered?')}"</span> {t('ask.or', 'or')}{' '}
             <span className="text-[var(--fg)]">"{t('ask.ex2', "What's the deductible for wind?")}"</span>. {t('ask.emptyB', "Answers quote the exact policy language they're based on so nothing is taken on general knowledge.")}
           </div>
         )}
@@ -89,10 +91,10 @@ export default function AskPanel({ policyText }) {
           const showCites = Boolean(openCitations[i])
           return (
             <div key={i} className="mt-4 first:mt-0">
-              <div className="max-w-[85%] rounded-2xl rounded-br-sm border border-[var(--line)] bg-[var(--bg-2)] px-4 py-2.5 text-sm text-[var(--fg)]">
+              <div className="max-w-[85%] break-words rounded-2xl rounded-br-sm border border-[var(--line)] bg-[var(--bg-2)] px-4 py-2.5 text-sm text-[var(--fg)] [overflow-wrap:anywhere]">
                 {turn.q}
               </div>
-              <div className="mt-2 max-w-[95%] rounded-2xl rounded-bl-sm border border-[var(--line)] bg-[var(--bg)] px-4 py-3 text-sm leading-relaxed text-[var(--muted)]">
+              <div className="mt-2 max-w-[95%] break-words rounded-2xl rounded-bl-sm border border-[var(--line)] bg-[var(--bg)] px-4 py-3 text-sm leading-relaxed text-[var(--muted)] [overflow-wrap:anywhere]">
                 <div className="mb-2 flex flex-wrap items-center gap-1.5">
                   {turn.r?.grounded ? (
                     <span className="badge lifecycle-approved"><CheckCircle2 size={11} /> {t('ask.grounded', 'Grounded')}</span>
@@ -139,7 +141,7 @@ export default function AskPanel({ policyText }) {
         )}
 
         <form onSubmit={submit} className="mt-4 flex items-center gap-2" data-print-hide>
-          <div className="flex-1">
+          <div className="min-w-0 flex-1 break-words">
           <input
             type="text"
             value={input}
@@ -150,7 +152,7 @@ export default function AskPanel({ policyText }) {
             className="input flex-1"
             aria-label={t('ask.ariaAsk', 'Ask a policy question')}
           />
-          <div className="tnum mt-1 text-right text-[10px] text-[var(--muted)]">{input.length}/1200</div>
+          <div className="tnum mt-1 text-right text-[10px] text-[var(--muted)]">{num(input.length)}/1200</div>
           </div>
           <button
             type="submit"

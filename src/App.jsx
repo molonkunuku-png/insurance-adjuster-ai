@@ -12,7 +12,7 @@ import GateView from './components/GateView'
 import Mascot from './components/Mascot'
 import AskPanel from './components/AskPanel'
 import { analyzeDamageAndPolicy, generateReport } from './lib/ai'
-import { apiGet, apiPost } from './lib/api'
+import { apiGet, apiPost, apiErrorMessage } from './lib/api'
 import { I18nProvider, useI18n, useFormat, LANGS } from './i18n'
 import { SAMPLE_POLICY, SAMPLE_NOTES, makeSampleImages } from './lib/sample'
 
@@ -148,8 +148,8 @@ function StatCard({ label, value, tint, Icon, delay }) {
   return (
     <div className="surface fade-in p-5" style={{ animationDelay: `${delay}ms` }}>
       <div className="mb-2 flex items-center gap-2 text-[var(--muted)]">
-        <span style={{ color: tint }}><Icon size={15} /></span>
-        <span className="text-[11px] font-semibold uppercase tracking-wider">{label}</span>
+        <span style={{ color: tint }} className="shrink-0"><Icon size={15} /></span>
+        <span className="min-w-0 flex-1 break-words text-[11px] font-semibold uppercase leading-snug tracking-wider">{label}</span>
       </div>
       <div className="tnum text-sm leading-relaxed text-[var(--fg)]">{value || '—'}</div>
     </div>
@@ -173,7 +173,7 @@ const CONFIDENCE = {
 }
 
 function App() {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const { dateTime } = useFormat()
   const [step, setStep] = useState('upload')
   const [report, setReport] = useState(null)
@@ -311,7 +311,7 @@ function App() {
         return
       }
       console.error(e)
-      setAppError(e.message || t('error.analysisFailed', 'AI analysis failed'))
+      setAppError(apiErrorMessage(e, t, t('error.analysisFailed', 'AI analysis failed')))
       setStep('upload')
     } finally {
       setLoading(false)
@@ -338,12 +338,12 @@ function App() {
     setLoading(true)
     setAppError('')
     try {
-      const markdown = await generateReport(report.analysis)
+      const markdown = await generateReport(report.analysis, lang)
       setReport(r => ({ ...r, markdown }))
       logEvent('report')
     } catch (e) {
       console.error(e)
-      setAppError(e.message || t('error.reportFailed', 'Report generation failed'))
+      setAppError(apiErrorMessage(e, t, t('error.reportFailed', 'Report generation failed')))
     } finally {
       setLoading(false)
     }
@@ -433,7 +433,7 @@ function App() {
         )}
       </main>
 
-      <footer className="border-t border-[var(--line)] py-6 text-center text-xs text-[var(--muted)]">
+      <footer className="border-t border-[var(--line)] px-4 py-6 text-center text-xs leading-relaxed text-[var(--muted)] text-balance">
         {t('footer.tagline', 'Themis Adjuster AI · Built for faster, fairer claims')}
       </footer>
     </div>
@@ -441,7 +441,7 @@ function App() {
 }
 
 function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, onPolicyEvent, resume, discardArmed, onContinueResume, onDiscardResume, dateTime }) {
-  const { t, lang } = useI18n()
+  const { t } = useI18n()
   return (
     <div>
       <div className="fade-in mx-auto max-w-2xl text-center" style={{ animationDelay: '0ms' }}>
@@ -452,22 +452,11 @@ function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, onPolicyEvent
           </span>
           {t('hero.badge', 'AI-powered claim assessment')}
         </span>
-        <h1 className="mt-5 text-4xl font-extrabold leading-[1.1] tracking-tight sm:text-5xl">
-          {lang === 'ms' ? (
-            <>
-              {t('hero.titleA', 'Jadikan gambar kerosakan')}{' '}
-              <span className="bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] bg-clip-text text-transparent">
-                {t('hero.titleB', 'draf untuk penyelaras tuntutan.')}
-              </span>
-            </>
-          ) : (
-            <>
-              Turn damage photos into an{' '}
-              <span className="bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] bg-clip-text text-transparent">
-                adjuster-ready draft
-              </span>
-            </>
-          )}
+        <h1 className="mt-5 text-[clamp(1.75rem,7vw,3rem)] font-extrabold leading-[1.1] tracking-tight text-balance">
+          {t('hero.titleA', 'Turn damage photos into an')}{' '}
+          <span className="bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] bg-clip-text text-transparent">
+            {t('hero.titleB', 'adjuster-ready draft.')}
+          </span>
         </h1>
         <p className="mx-auto mt-4 max-w-lg text-[15px] leading-relaxed text-[var(--muted)]">
           {t('hero.subtitle', 'Upload a policy document and damage photos. Themis reads the fine print, assesses the damage, and drafts an adjuster-ready draft with citations for human review.')}
@@ -512,7 +501,7 @@ function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, onPolicyEvent
         {FEATURES.map((f, i) => <FeatureCard key={f.tKey} f={f} i={i} />)}
       </div>
 
-      <div className="fade-in mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] px-5 py-4 text-[12px] text-[var(--muted)]" style={{ animationDelay: '240ms' }}>
+      <div className="fade-in mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 rounded-2xl border border-[var(--line)] bg-[var(--bg-2)] px-5 py-4 text-center text-[12px] leading-snug text-[var(--muted)] [&>*]:min-w-0" style={{ animationDelay: '240ms' }}>
         <span className="inline-flex items-center gap-2">
           <Lock size={14} className="text-[var(--accent)]" /> {t('trust.1', 'Photos processed in your session only')}
         </span>
@@ -578,7 +567,7 @@ function ResultView({ report, loading, onGenerate, onBack, events = [], onExport
       </div>
 
       <div className="fade-in mt-6" style={{ animationDelay: '60ms' }}>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
           <h2 className="text-2xl font-bold tracking-tight">{t('result.title', 'Loss assessment')}</h2>
           <span className={`badge ${conf.cls}`}>{t(conf.key, conf.fb)}</span>
           {a.needsReview && (
@@ -591,7 +580,7 @@ function ResultView({ report, loading, onGenerate, onBack, events = [], onExport
           </span>
         </div>
         {perils.length > 0 && (
-          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <div className="mt-3 flex max-w-full flex-wrap items-center gap-1.5">
             {perils.map(p => {
               const st = PERIL_STYLE[p.key] || PERIL_STYLE.wind
               const src = p.source === 'both'
@@ -616,7 +605,7 @@ function ResultView({ report, loading, onGenerate, onBack, events = [], onExport
         )}
       </div>
 
-      <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 [&>*]:min-w-0">
         <StatCard label={t('result.coverage', 'Coverage')} value={a.coverage} tint="var(--accent)" Icon={ShieldCheck} delay={100} />
         <StatCard label={t('result.damage', 'Damage')} value={a.damage} tint="var(--grape)" Icon={ScanEye} delay={160} />
         <StatCard label={t('result.value', 'Estimated value')} value={a.estimatedValue} tint="var(--amber)" Icon={DollarSign} delay={220} />
@@ -676,8 +665,8 @@ function ResultView({ report, loading, onGenerate, onBack, events = [], onExport
           <ul className="space-y-1.5">
             {events.map((e, i) => (
               <li key={i} className="tnum flex items-baseline justify-between gap-3 text-sm text-[var(--muted)]">
-                <span>{t(`ev.${e.ev}`, e.ev)}</span>
-                <span className="text-xs opacity-80">{dateTime(e.at)}</span>
+                <span className="min-w-0 flex-1 break-words">{t(`ev.${e.ev}`, e.ev)}</span>
+                <span className="shrink-0 text-xs opacity-80">{dateTime(e.at)}</span>
               </li>
             ))}
           </ul>

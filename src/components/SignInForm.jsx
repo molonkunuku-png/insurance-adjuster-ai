@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react'
-import { apiPost } from '../lib/api'
+import { apiPost, apiErrorMessage } from '../lib/api'
 import { useI18n } from '../i18n'
 
 export default function SignInForm({ onRequestAccess }) {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState('idle') // idle | sending | done | error
   const [accessUrl, setAccessUrl] = useState(null)
@@ -23,7 +23,7 @@ export default function SignInForm({ onRequestAccess }) {
     setStatus('sending')
     setError('')
     try {
-      const res = await apiPost('/api/beta/resend', { email })
+      const res = await apiPost('/api/beta/resend', { email, lang })
       setAccessUrl(res.accessUrl || null)
       setStatus('done')
     } catch (err) {
@@ -32,7 +32,7 @@ export default function SignInForm({ onRequestAccess }) {
         setStatus('idle')
         return
       }
-      setError(err.message || t('error.generic'))
+      setError(apiErrorMessage(err, t, t('error.generic')))
       setStatus('error')
     }
   }

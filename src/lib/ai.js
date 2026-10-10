@@ -14,8 +14,8 @@ export async function analyzeDamageAndPolicy(imagesBase64, pdfText, damageNotes 
   return analysis
 }
 
-export async function generateReport(analysis) {
-  const { markdown } = await apiPost('/api/report', { analysis })
+export async function generateReport(analysis, lang = 'en') {
+  const { markdown } = await apiPost('/api/report', { analysis, lang })
   return markdown
 }
 

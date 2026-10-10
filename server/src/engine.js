@@ -338,11 +338,18 @@ function section(label) {
   return `## ${label}\n`
 }
 
-export function localReport(analysis) {
+export function localReport(analysis, lang = 'en') {
   const a = analysis || {}
-  // Local calendar date (not UTC slice) so the stamp matches the adjuster's wall clock.
+  // Local calendar date, formatted for the report language (ms-MY / en-US).
   const now = new Date()
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  let today
+  try {
+    today = new Intl.DateTimeFormat(lang === 'ms' ? 'ms-MY' : 'en-US', {
+      dateStyle: 'medium',
+    }).format(now)
+  } catch {
+    today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  }
 
   const lines = []
   lines.push('# Loss Report (Draft)')

@@ -299,6 +299,9 @@ body::after {
 /* ---------- Form input ---------- */
 .input {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   border-radius: 12px;
   border: 1px solid var(--line);
   background: var(--bg-2);
@@ -345,6 +348,9 @@ select.input {
   font-weight: 600;
   line-height: 1.4;
   border: 1px solid transparent;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .sev-1 { color: var(--sev-1); background: color-mix(in srgb, var(--sev-1) 14%, transparent); border-color: color-mix(in srgb, var(--sev-1) 35%, transparent); }
 .sev-2 { color: var(--sev-2); background: color-mix(in srgb, var(--sev-2) 14%, transparent); border-color: color-mix(in srgb, var(--sev-2) 35%, transparent); }
@@ -354,7 +360,7 @@ select.input {
 .lifecycle-reviewing { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
 .lifecycle-priced { color: var(--grape); background: var(--grape-soft); border-color: color-mix(in srgb, var(--grape) 35%, transparent); }
 .lifecycle-approved { color: var(--success); background: var(--success-soft); border-color: color-mix(in srgb, var(--success) 35%, transparent); }
-.peril { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.72rem; font-weight: 500; }
+.peril { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.35rem; font-size: 0.72rem; font-weight: 500; max-width: 100%; overflow-wrap: anywhere; }
 .peril-dot { width: 0.5rem; height: 0.5rem; border-radius: 999px; flex: 0 0 auto; }
 .peril-fire .peril-dot { background: var(--peril-fire); }
 .peril-water .peril-dot { background: var(--peril-water); }

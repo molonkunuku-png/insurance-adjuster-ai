@@ -12,6 +12,8 @@ export function I18nProvider({ children }) {
   useEffect(() => {
     document.documentElement.lang = lang === 'ms' ? 'ms' : 'en'
     try { localStorage.setItem('themis-lang', lang) } catch { /* ignore */ }
+    const meta = document.querySelector('meta[name="description"]')
+    if (meta) meta.setAttribute('content', dict[lang]?.['meta.desc'] ?? dict.en['meta.desc'])
   }, [lang])
   const value = useMemo(() => ({
     lang,

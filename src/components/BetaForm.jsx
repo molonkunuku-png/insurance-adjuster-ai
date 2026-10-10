@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { apiPost } from '../lib/api'
+import { apiPost, apiErrorMessage } from '../lib/api'
 import { useI18n } from '../i18n'
 
 const ROLES = [
@@ -11,7 +11,7 @@ const ROLES = [
 ]
 
 export default function BetaForm() {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const [form, setForm] = useState({ name: '', email: '', role: ROLES[0], claims: '' })
   const [status, setStatus] = useState('idle') // idle | sending | done | error
   const [granted, setGranted] = useState(false)
@@ -33,12 +33,12 @@ export default function BetaForm() {
     setStatus('sending')
     setError('')
     try {
-      const res = await apiPost('/api/beta', { ...form, source: 'themis-beta' })
+      const res = await apiPost('/api/beta', { ...form, source: 'themis-beta', lang })
       setGranted(Boolean(res.granted))
       setAccessUrl(res.accessUrl || null)
       setStatus('done')
     } catch (err) {
-      setError(err.message || t('error.generic'))
+      setError(apiErrorMessage(err, t, t('error.generic')))
       setStatus('error')
     }
   }
@@ -56,7 +56,7 @@ export default function BetaForm() {
         setCooldown(Number(err.data.retryAfter) || 60)
         return
       }
-      setError(err.message || t('error.generic'))
+      setError(apiErrorMessage(err, t, t('error.generic')))
     }
   }
 
@@ -142,9 +142,9 @@ export default function BetaForm() {
         <Field label={t('beta.workEmail', 'Work email')}>
           <input required autoComplete="email" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder={t('beta.emailPh', 'jane@claimsco.com')} className="input" />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
           <Field label={t('beta.role', 'Role')}>
-            <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} className="input">
+            <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} className="input min-w-0 text-[13px] sm:text-sm">
               {ROLES.map(r => <option key={r.value} value={r.value}>{t(r.key, r.value)}</option>)}
             </select>
           </Field>
@@ -174,8 +174,8 @@ export default function BetaForm() {
 
 function Field({ label, children }) {
   return (
-    <label className="block">
-      <span className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-[var(--muted)]">{label}</span>
+    <label className="block min-w-0">
+      <span className="mb-1 block text-[11px] font-medium uppercase leading-snug tracking-normal text-[var(--muted)] text-balance">{label}</span>
       {children}
     </label>
   )

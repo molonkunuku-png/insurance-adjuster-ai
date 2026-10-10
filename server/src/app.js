@@ -12,7 +12,7 @@ import {
   countByStatus, findExpiringLeads,
 } from './db.js'
 import {
-  sendBetaConfirmation, sendAdminNotification, resendConfigured,
+  sendAdminNotification, resendConfigured,
 } from './email.js'
 import { analyzeDamageAndPolicy, generateReport, askPolicy } from './openai.js'
 import { localAnalyze, localAsk, localReport } from './engine.js'
@@ -161,17 +161,18 @@ export function createApp() {
   // ---- beta signup (auto-approves until the cap) ----
   app.post('/api/beta', betaLimiter, async (req, res) => {
     try {
-      const { name, email, role, claims, source } = req.body || {}
+      const { name, email, role, claims, source, lang } = req.body || {}
       const clean = {
         name: str(name, 120),
         email: str(email, 200).toLowerCase(),
         role: str(role, 60),
         claimsPerMonth: str(claims, 20),
         source: str(source, 60) || 'themis-beta',
+        lang: lang === 'ms' ? 'ms' : 'en',
       }
-      if (!clean.name) return res.status(400).json({ error: 'Name is required' })
+      if (!clean.name) return res.status(400).json({ error: 'A name is required', code: 'badName' })
       if (!isEmail(clean.email)) {
-        return res.status(400).json({ error: 'A valid email is required' })
+        return res.status(400).json({ error: 'A valid email is required', code: 'badEmail' })
       }
 
       const { lead, created } = await saveBetaLead(clean)
@@ -186,13 +187,21 @@ export function createApp() {
 
       if (resendConfigured()) {
         if (grantAccess) {
-          const r = await grantAndSend(clean)
+          const r = await grantAndSend({ ...clean, lang: clean.lang })
           mail = { status: r.emailSent ? 'sent' : (r.queued ? 'queued' : 'failed'), provider: r.provider || null, error: r.error || null }
           // Honest rule (lockout postmortem): the link is returned whenever
           // delivery did NOT confirm — never a silent "check your inbox".
           if (!r.emailSent) accessUrl = r.accessUrl
         } else {
-          waitlistSent = await sendBetaConfirmation(clean).then(() => 'sent').catch(e => `failed: ${e.message}`)
+          try {
+            const w = await trySendNow({ id: `direct-waitlist-${Date.now()}`, type: 'waitlist', to: clean.email, payload: { name: clean.name, lang: clean.lang }, attempts: 0 })
+            waitlistSent = w.provider === 'filelog' ? 'logged' : 'sent'
+          } catch (e) {
+            waitlistSent = `failed: ${String(e?.message || e).slice(0, 120)}`
+            try {
+              enqueue({ type: 'waitlist', to: clean.email, payload: { name: clean.name, lang: clean.lang }, dedupeKey: `waitlist:${clean.email}:${new Date().toISOString().slice(0, 10)}` })
+            } catch { /* caps/full — logged above */ }
+          }
         }
         // Owner delivery line: tells the admin mail exactly what happened
         // to the lead's magic link (metadata only — never the link itself).
@@ -228,7 +237,7 @@ export function createApp() {
     try {
       const email = str(req.body?.email, 200).toLowerCase()
       if (!isEmail(email)) {
-        return res.status(400).json({ error: 'A valid email is required' })
+        return res.status(400).json({ error: 'A valid email is required', code: 'badEmail' })
       }
       const wait = resendCooldown(email)
       if (wait > 0) {
@@ -238,18 +247,21 @@ export function createApp() {
       let accessUrl = null
       let mail = { status: 'skipped', provider: null, error: null }
       if (lead && (lead.status === 'invited' || lead.status === 'active')) {
+        const leadLang = lead.lang === 'ms' ? 'ms' : 'en'
         if (resendConfigured()) {
-          const r = await grantAndSend({ name: lead.name, email })
+          const r = await grantAndSend({ name: lead.name, email, lang: leadLang })
           mail = { status: r.emailSent ? 'sent' : (r.queued ? 'queued' : 'failed'), provider: r.provider || null, error: r.error || null }
           if (!r.emailSent) accessUrl = r.accessUrl
         } else {
           // No mailer (local dev): mint + return the link so sign-in works offline.
-          const r = await grantAndSend({ name: lead.name, email })
+          const r = await grantAndSend({ name: lead.name, email, lang: leadLang })
           accessUrl = r.accessUrl
           mail = { status: 'failed', provider: null, error: 'no mailer configured (dev fallback link shown)' }
         }
       } else if (lead && resendConfigured()) {
-        await sendBetaConfirmation({ name: lead.name, email }).catch(() => {})
+        try {
+          await trySendNow({ id: `direct-confirm-${Date.now()}`, type: 'confirm', to: email, payload: { name: lead.name, lang: lead.lang === 'ms' ? 'ms' : 'en' }, attempts: 0 })
+        } catch { /* confirmation is best-effort; resend stays neutral */ }
       }
       // Always respond the same (don't reveal whether the email exists)
       res.json({ ok: true, mail, ...(accessUrl ? { accessUrl } : {}) })
@@ -271,13 +283,13 @@ export function createApp() {
       const imgs = Array.isArray(images) ? images : []
       const notes = str(damageNotes, 4000)
       if (imgs.length === 0 && !notes) {
-        return res.status(400).json({ error: 'At least one image or a damage description is required' })
+        return res.status(400).json({ error: 'At least one image or a damage description is required', code: 'needInput' })
       }
-      if (imgs.length > 12) return res.status(400).json({ error: 'Too many images (max 12)' })
+      if (imgs.length > 12) return res.status(400).json({ error: 'Too many images (max 12)', code: 'tooMany' })
       for (const img of imgs) {
-        if (!img?.base64 || !img?.type) return res.status(400).json({ error: 'Malformed image payload' })
-        if (String(img.base64).length > MAX_IMAGE_B64) return res.status(400).json({ error: 'Image too large (max ~8 MB per image)' })
-        if (!looksLikeImage(img.base64)) return res.status(400).json({ error: 'Unsupported image encoding (JPEG, PNG, GIF, or WebP required)' })
+        if (!img?.base64 || !img?.type) return res.status(400).json({ error: 'Malformed image payload', code: 'malformed' })
+        if (String(img.base64).length > MAX_IMAGE_B64) return res.status(400).json({ error: 'Image too large (max ~8 MB per image)', code: 'tooLargeImg' })
+        if (!looksLikeImage(img.base64)) return res.status(400).json({ error: 'Unsupported image encoding (JPEG, PNG, GIF, or WebP required)', code: 'badEncoding' })
       }
       const policy = str(policyText, 20000)
       // With no key we run fully on the deterministic local engine — no AI bills.
@@ -293,11 +305,12 @@ export function createApp() {
 
   app.post('/api/report', noStore, apiLimiter, requireAuth, async (req, res) => {
     try {
-      const { analysis } = req.body || {}
-      if (!analysis) return res.status(400).json({ error: 'analysis is required' })
+      const { analysis, lang } = req.body || {}
+      if (!analysis) return res.status(400).json({ error: 'analysis is required', code: 'noAnalysis' })
+      const reportLang = lang === 'ms' ? 'ms' : 'en'
       const markdown = config.usesOpenAI()
         ? await generateReport(analysis)
-        : localReport(analysis)
+        : localReport(analysis, reportLang)
       res.json({ markdown })
     } catch (e) {
       console.error('[report] error:', e.message)
@@ -309,9 +322,9 @@ export function createApp() {
     try {
       const { policyText, question, history } = req.body || {}
       const q = str(question, 1200)
-      if (!q) return res.status(400).json({ error: 'question is required' })
+      if (!q) return res.status(400).json({ error: 'question is required', code: 'noQuestion' })
       if (policyText && policyText.length > 40000) {
-        return res.status(400).json({ error: 'policy text is too large (max 40,000 characters)' })
+        return res.status(400).json({ error: 'policy text is too large (max 40,000 characters)', code: 'policyTooLarge' })
       }
       const args = {
         policyText: str(policyText, 40000),
@@ -329,7 +342,7 @@ export function createApp() {
   app.post('/api/export/docx', apiLimiter, requireAuth, async (req, res) => {
     try {
       const { markdown, analysis, lang } = req.body || {}
-      if (!markdown && !analysis) return res.status(400).json({ error: 'nothing to export' })
+      if (!markdown && !analysis) return res.status(400).json({ error: 'nothing to export', code: 'nothingExport' })
       const buf = await buildDocx({ markdown: str(markdown, 60000), analysis: analysis || null, lang: lang === 'ms' ? 'ms' : 'en' })
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
       res.setHeader('Content-Disposition', `attachment; filename="${exportFilename()}"`)
@@ -445,9 +458,10 @@ export function createApp() {
         const token = generateAccessToken()
         await approveLead({ email: lead.email, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + config.tokenTtlDays * 86400000) })
         const accessUrl = `${config.publicApiUrl}/api/access/verify?token=${encodeURIComponent(token)}`
+        const lang = lead.lang === 'ms' ? 'ms' : 'en'
         enqueue({
           type: 'nudge', to: lead.email,
-          payload: { name: lead.name, accessUrl, ttl: '24 hours', lang: 'en' },
+          payload: { name: lead.name, accessUrl, ttl: lang === 'ms' ? '24 jam' : '24 hours', lang },
           dedupeKey: `nudge:${String(lead.email).toLowerCase()}:${new Date().toISOString().slice(0, 10)}`,
         })
       } catch (e) {
@@ -490,7 +504,9 @@ async function grantAndSend({ name, email, lang = 'en' }) {
   await approveLead({ email, tokenHash: hashToken(token), expiresAt })
   // PUBLIC_API_URL -> APP_URL -> default: points the magic link at the API origin.
   const accessUrl = `${config.publicApiUrl}/api/access/verify?token=${encodeURIComponent(token)}`
-  const ttl = config.tokenTtlDays >= 1 ? `${config.tokenTtlDays} days` : `${Math.round(config.tokenTtlDays * 24)} hours`
+  const ttl = config.tokenTtlDays >= 1
+    ? (lang === 'ms' ? `${config.tokenTtlDays} hari` : `${config.tokenTtlDays} days`)
+    : (lang === 'ms' ? `${Math.round(config.tokenTtlDays * 24)} jam` : `${Math.round(config.tokenTtlDays * 24)} hours`)
   const payload = { name, accessUrl, ttl, lang }
   try {
     const r = await trySendNow({ id: `direct-${token.slice(0, 8)}`, type: 'access', to: email, payload, attempts: 0 })

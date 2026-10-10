@@ -42,6 +42,7 @@ CREATE INDEX IF NOT EXISTS beta_leads_status_created_idx ON beta_leads (status, 
 ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS access_token_hash TEXT;
 ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMPTZ;
 ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS invited_at TIMESTAMPTZ;
+ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS lang TEXT;
 ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
 ALTER TABLE beta_leads ADD COLUMN IF NOT EXISTS uses INTEGER NOT NULL DEFAULT 0;
 
@@ -79,13 +80,15 @@ export async function initDb() {
   timer.unref?.()
 }
 
-export async function saveBetaLead({ name, email, role, claimsPerMonth, source }) {
+export async function saveBetaLead({ name, email, role, claimsPerMonth, source, lang }) {
+  const cleanLang = lang === 'ms' ? 'ms' : 'en'
   if (useMemory) {
     const existing = memory.betaLeads.find(l => l.email.toLowerCase() === email.toLowerCase())
     if (existing) {
       existing.name = name
       existing.role = role
       existing.claimsPerMonth = claimsPerMonth
+      existing.lang = cleanLang
       return { lead: existing, created: false }
     }
     const lead = {
@@ -95,6 +98,7 @@ export async function saveBetaLead({ name, email, role, claimsPerMonth, source }
       role,
       claimsPerMonth,
       source: source || 'themis-beta',
+      lang: cleanLang,
       status: 'pending',
       accessTokenHash: null,
       tokenExpiresAt: null,
@@ -108,13 +112,13 @@ export async function saveBetaLead({ name, email, role, claimsPerMonth, source }
   }
 
   const res = await pool.query(
-    `INSERT INTO beta_leads (name, email, role, claims_per_month, source)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO beta_leads (name, email, role, claims_per_month, source, lang)
+     VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (lower(email))
      DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role,
-                   claims_per_month = EXCLUDED.claims_per_month
+                   claims_per_month = EXCLUDED.claims_per_month, lang = EXCLUDED.lang
      RETURNING id, name, email, role, claims_per_month, status, created_at, (xmax = 0) AS created`,
-    [name, email, role || null, claimsPerMonth || null, source || 'themis-beta']
+    [name, email, role || null, claimsPerMonth || null, source || 'themis-beta', cleanLang]
   )
   const row = res.rows[0]
   return { lead: row, created: row.created }
@@ -194,7 +198,7 @@ export async function findLeadByTokenHash(tokenHash) {
     return memory.betaLeads.find(l => l.accessTokenHash === tokenHash) || null
   }
   const res = await pool.query(
-    `SELECT id, name, email, status, token_expires_at, uses
+    `SELECT id, name, email, status, lang, token_expires_at, uses
      FROM beta_leads WHERE access_token_hash = $1`,
     [tokenHash]
   )
@@ -206,7 +210,7 @@ export async function findLeadByEmail(email) {
     return memory.betaLeads.find(l => l.email.toLowerCase() === email.toLowerCase()) || null
   }
   const res = await pool.query(
-    `SELECT id, name, email, status, token_expires_at FROM beta_leads WHERE lower(email) = lower($1)`,
+    `SELECT id, name, email, status, lang, token_expires_at FROM beta_leads WHERE lower(email) = lower($1)`,
     [email]
   )
   return res.rows[0] || null
@@ -220,7 +224,7 @@ export async function findExpiringLeads(withinHours = 24) {
     )
   }
   const res = await pool.query(
-    `SELECT id, name, email, status, token_expires_at FROM beta_leads
+    `SELECT id, name, email, status, lang, token_expires_at FROM beta_leads
      WHERE status = 'invited' AND access_token_hash IS NOT NULL AND token_expires_at < $1`,
     [cutoff.toISOString()]
   )

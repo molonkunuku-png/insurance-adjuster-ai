@@ -12,7 +12,7 @@ import {
   localAnalyze, localAsk, localReport, buildGaps, buildPerils,
 } from './engine.js'
 import {
-  initDb, saveBetaLead, approveLead, findLeadByTokenHash, markLogin,
+  initDb, saveBetaLead, approveLead, findLeadByTokenHash, findLeadByEmail, markLogin,
   purgeExpiredTokens,
 } from './db.js'
 import { generateAccessToken, hashToken, createSession, verifySession } from './auth.js'
@@ -90,10 +90,12 @@ describe('localReport', () => {
     assert.match(md, /Confidence: low/)
   })
 
-  it('stamps a local calendar date, not a UTC slice', () => {
+  it('stamps a localized calendar date', () => {
     const now = new Date()
-    const want = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-    assert.ok(localReport({}).includes(want))
+    const md = localReport({})
+    assert.ok(md.includes(String(now.getFullYear())))
+    const ms = localReport({}, 'ms')
+    assert.ok(ms.includes(String(now.getFullYear())))
   })
 
   it('falls back cleanly on empty analysis', () => {
@@ -125,8 +127,21 @@ describe('localAsk (E42: verbatim quotes only)', () => {
   })
 })
 
-describe('magic-link tokens (D55: single-use + expiry)', () => {
-  it('a used token cannot verify twice', async () => {
+describe('lead language preference', () => {
+  it('persists lang through save + lookup', async () => {
+    await saveBetaLead({ name: 'BM', email: 'lang-ms@example.com', lang: 'ms' })
+    const found = await findLeadByEmail('lang-ms@example.com')
+    assert.equal(found?.lang, 'ms')
+  })
+
+  it('defaults unknown lang to en', async () => {
+    await saveBetaLead({ name: 'EN', email: 'lang-en@example.com', lang: 'xx' })
+    const found = await findLeadByEmail('lang-en@example.com')
+    assert.equal(found?.lang, 'en')
+  })
+})
+
+describe('magic-link tokens (D55: single-use + expiry)', () => {  it('a used token cannot verify twice', async () => {
     const { lead } = await saveBetaLead({ name: 'T', email: 'single-use@example.com' })
     const token = generateAccessToken()
     await approveLead({ email: lead.email, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 3600000) })

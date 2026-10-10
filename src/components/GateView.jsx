@@ -13,7 +13,7 @@ function Tab({ active, onClick, children }) {
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`rounded-lg px-3 py-2 text-[13px] font-medium transition ${
+      className={`rounded-lg px-3 py-2 text-[13px] font-medium leading-snug transition break-words whitespace-normal ${
         active ? 'bg-[var(--bg)] text-[var(--fg)] shadow-sm' : 'text-[var(--muted)] hover:text-[var(--fg)]'
       }`}
     >

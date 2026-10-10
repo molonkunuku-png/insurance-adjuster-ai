@@ -7,7 +7,7 @@
  * ends (Resend 403, bad auth) so they land in dead-letter, not retry loops.
  */
 import { mailEnv, SmtpClient, fileLogSend } from './mailer.js'
-import { sendBetaAccess, sendBetaConfirmation } from './email.js'
+import { sendTemplated } from './email.js'
 import { renderTemplate } from './templates.js'
 import { pairedChat, sendTelegram, telegramEnabled } from './telegram.js'
 
@@ -61,15 +61,14 @@ async function viaSmtp(job) {
 }
 
 async function viaResend(job) {
-  const { name, accessUrl } = job.payload
+  // Single source of truth: templates.js renders per payload.lang.
+  const t = renderTemplate(job.type, job.payload.lang || 'en', {
+    name: job.payload.name || 'there',
+    accessUrl: job.payload.accessUrl,
+    ttl: job.payload.ttl || '48 hours',
+  })
   try {
-    if (job.type === 'access' || job.type === 'nudge') {
-      await sendBetaAccess({ name, email: job.to, accessUrl })
-    } else if (job.type === 'waitlist' || job.type === 'confirm' || job.type === 'welcome') {
-      await sendBetaConfirmation({ name, email: job.to })
-    } else {
-      return null // no Resend builder for this type — fall through
-    }
+    await sendTemplated({ to: job.to, subject: t.subject, text: t.text, html: t.html })
     return { ok: true, provider: 'resend' }
   } catch (e) {
     const msg = String(e?.message || e)

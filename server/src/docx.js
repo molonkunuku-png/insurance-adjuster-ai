@@ -37,6 +37,11 @@ const DOCX_LANG = {
     signoff: 'Adjuster sign-off', reviewBy: 'Reviewing adjuster', date: 'Date',
     draftNote: 'This is an AI-drafted draft for human adjuster review — not a binding estimate.',
     none: 'None detected in the extracted text.',
+    header: 'Themis Adjuster AI · Loss Report (Draft)',
+    footer: 'Themis Adjuster AI · Draft — not the final report · verify before relying',
+    empty: 'Nothing to export.',
+    truncated: 'Note: the source draft exceeded the export size cap; content after the cap was truncated.',
+    confidence: 'Confidence', needsReview: 'Needs human review',
   },
   ms: {
     coverage: 'Liputan', damage: 'Kerosakan', estimated: 'Anggaran nilai',
@@ -44,6 +49,11 @@ const DOCX_LANG = {
     signoff: 'Pengesahan penyelaras', reviewBy: 'Penyelaras penyemak', date: 'Tarikh',
     draftNote: 'Ini draf janaan AI untuk semakan penyelaras — bukan anggaran muktamad.',
     none: 'Tiada dikesan dalam teks yang diekstrak.',
+    header: 'Themis Adjuster AI · Draf Laporan Kerugian',
+    footer: 'Themis Adjuster AI · Draf — bukan laporan akhir · sahkan sebelum bergantung',
+    empty: 'Tiada apa untuk dieksport.',
+    truncated: 'Nota: draf sumber melebihi had saiz eksport; kandungan selebihnya dipotong.',
+    confidence: 'Keyakinan', needsReview: 'Perlu semakan penyelaras tuntutan',
   },
 }
 const pickLang = (lang) => (lang === 'ms' ? DOCX_LANG.ms : DOCX_LANG.en)
@@ -273,7 +283,7 @@ function analysisBlock(analysis, lang = 'en') {
     }))
   }
   if (a.confidence || a.needsReview != null) {
-    const flags = [`Confidence: ${String(a.confidence || 'low')}`, a.needsReview ? 'Needs human review' : ''].filter(Boolean).join(' · ')
+    const flags = [`${L.confidence}: ${String(a.confidence || 'low')}`, a.needsReview ? L.needsReview : ''].filter(Boolean).join(' · ')
     children.push(new Paragraph({
       spacing: { before: 160, after: 60 },
       children: [new TextRun({ text: flags, italics: true, color: MUTED })],
@@ -294,6 +304,7 @@ function analysisBlock(analysis, lang = 'en') {
 }
 
 export async function buildDocx({ markdown, analysis, lang = 'en' }) {
+  const L = pickLang(lang)
   const children = []
   children.push(new Paragraph({
     alignment: AlignmentType.LEFT,
@@ -310,13 +321,13 @@ export async function buildDocx({ markdown, analysis, lang = 'en' }) {
     if (source.length > MAX_MARKDOWN) {
       children.push(new Paragraph({
         spacing: { before: 200 },
-        children: [new TextRun({ text: 'Note: the source draft exceeded the export size cap; content after the cap was truncated.', italics: true, color: MUTED })],
+        children: [new TextRun({ text: L.truncated, italics: true, color: MUTED })],
       }))
     }
   } else if (analysis) {
     children.push(...analysisBlock(analysis, lang))
   } else {
-    children.push(paragraph('Nothing to export.'))
+    children.push(paragraph(L.empty))
   }
 
   const letterhead = (text) => new Header({
@@ -328,7 +339,7 @@ export async function buildDocx({ markdown, analysis, lang = 'en' }) {
   const foot = new Footer({
     children: [new Paragraph({
       alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text: 'Themis Adjuster AI · Draft — not the final report · verify before relying', color: MUTED, size: 16 })],
+      children: [new TextRun({ text: L.footer, color: MUTED, size: 16 })],
     })],
   })
 
@@ -341,7 +352,7 @@ export async function buildDocx({ markdown, analysis, lang = 'en' }) {
         properties: {
           page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } },
         },
-        headers: { default: letterhead('Themis Adjuster AI · Loss Report (Draft)') },
+        headers: { default: letterhead(L.header) },
         footers: { default: foot },
         children,
       },

@@ -14,31 +14,7 @@ const BRAND = '#0b0d17'
 const CARD = '#141828'
 const LINE = '#232842'
 const INK = '#ffffff'
-const MUTED = '#b9bed2'
 const FAINT = '#6b7086'
-
-/**
- * Bulletproof CTA button: table cell + solid bgcolor, with an Outlook (VML)
- * fallback so it renders as a real button everywhere.
- */
-function button(url, label) {
-  return `
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;">
-    <tr>
-      <td align="center" bgcolor="${ACCENT}" style="border-radius:10px;background-color:${ACCENT};">
-        <!--[if mso]>
-        <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${url}" style="height:44px;v-text-anchor:middle;width:200px;" arcsize="23%" stroke="f" fillcolor="${ACCENT}">
-          <w:anchorlock/>
-          <center style="color:${BRAND};font-family:Arial,sans-serif;font-size:14px;font-weight:bold;">${label}</center>
-        </v:roundrect>
-        <![endif]-->
-        <!--[if !mso]><!-->
-        <a href="${url}" target="_blank" style="display:inline-block;background-color:${ACCENT};color:${BRAND};font-family:${FONT};font-size:14px;font-weight:700;line-height:44px;text-decoration:none;padding:0 30px;border-radius:10px;">${label}</a>
-        <!--<![endif]-->
-      </td>
-    </tr>
-  </table>`
-}
 
 /** Table-based, email-client-safe shell. Dark theme via bgcolor attributes. */
 function shell(bodyHtml, preheader = '') {
@@ -98,74 +74,6 @@ async function send(payload) {
   return data
 }
 
-export function betaConfirmationHtml({ name }) {
-  const first = escapeHtml((name || 'there').split(' ')[0])
-  const body = `
-    <h1 style="margin:0 0 10px;font-family:${FONT};font-size:22px;line-height:1.3;font-weight:700;color:${INK};">You're on the beta list, ${first}.</h1>
-    <p style="margin:0 0 16px;font-family:${FONT};font-size:15px;line-height:1.7;color:${MUTED};">
-      Thanks for requesting access to Themis. We're onboarding a small first group of
-      adjusters, and you're on the list. We'll email you your access link as soon as
-      a spot opens.
-    </p>
-    <p style="margin:0 0 26px;font-family:${FONT};font-size:15px;line-height:1.7;color:${MUTED};">
-      In return, we'll ask for honest feedback — what works, what's wrong, what's missing.
-    </p>
-    ${button(config.appUrl, 'Visit Themis')}
-    <p style="margin:26px 0 0;font-family:${FONT};font-size:12px;line-height:1.6;color:${FAINT};">
-      Didn't request this? Just ignore this email.
-    </p>`
-  return shell(body, "You're on the Themis beta list — we'll send your access link soon.")
-}
-
-export function betaConfirmationText({ name }) {
-  const first = (name || 'there').split(' ')[0]
-  return `You're on the Themis beta list, ${first}.
-
-Thanks for requesting access to Themis. We're onboarding a small first group of adjusters, and you're on the list. We'll email you your access link as soon as a spot opens.
-
-In return, we'll ask for honest feedback — what works, what's wrong, what's missing.
-
-Visit Themis: ${config.appUrl}
-
-Didn't request this? Just ignore this email.
-— Themis Adjuster AI`
-}
-
-export function betaAccessHtml({ name, accessUrl }) {
-  const first = escapeHtml((name || 'there').split(' ')[0])
-  const body = `
-    <h1 style="margin:0 0 10px;font-family:${FONT};font-size:22px;line-height:1.3;font-weight:700;color:${INK};">You're in, ${first}.</h1>
-    <p style="margin:0 0 16px;font-family:${FONT};font-size:15px;line-height:1.7;color:${MUTED};">
-      Your Themis beta access is ready. Click below to open your account — the link
-      signs you in automatically.
-    </p>
-    <p style="margin:0 0 26px;font-family:${FONT};font-size:15px;line-height:1.7;color:${MUTED};">
-      Turn damage photos and a policy document into an adjuster-ready loss report draft.
-    </p>
-    ${button(accessUrl, 'Open Themis')}
-    <p style="margin:26px 0 0;font-family:${FONT};font-size:12px;line-height:1.6;color:${FAINT};">
-      This link expires in ${config.tokenTtlDays} days. If it stops working, request a new one
-      from the sign-in page. Themis drafts documents for review — it is not a binding
-      estimate and always requires a human adjuster.
-    </p>`
-  return shell(body, 'Your Themis beta access is ready — open your account.')
-}
-
-export function betaAccessText({ name, accessUrl }) {
-  const first = (name || 'there').split(' ')[0]
-  return `You're in, ${first}.
-
-Your Themis beta access is ready. Open your account (this signs you in automatically):
-${accessUrl}
-
-Turn damage photos and a policy document into an adjuster-ready loss report draft.
-
-This link expires in ${config.tokenTtlDays} days. If it stops working, request a new one from the sign-in page.
-
-Themis drafts documents for review — it is not a binding estimate and always requires a human adjuster.
-— Themis Adjuster AI`
-}
-
 export function adminNotificationHtml({ name, email, role, claimsPerMonth, created, delivery }) {
   const row = (label, value) => `
       <tr>
@@ -207,26 +115,6 @@ function deliveryLine(delivery) {
   return 'not attempted'
 }
 
-export async function sendBetaConfirmation({ name, email }) {
-  return send({
-    from: config.resendFrom,
-    to: email,
-    subject: "You're on the Themis beta list",
-    html: betaConfirmationHtml({ name }),
-    text: betaConfirmationText({ name }),
-  })
-}
-
-export async function sendBetaAccess({ name, email, accessUrl }) {
-  return send({
-    from: config.resendFrom,
-    to: email,
-    subject: 'Your Themis beta access',
-    html: betaAccessHtml({ name, accessUrl }),
-    text: betaAccessText({ name, accessUrl }),
-  })
-}
-
 export async function sendAdminNotification(lead) {
   return send({
     from: config.resendFrom,
@@ -235,6 +123,17 @@ export async function sendAdminNotification(lead) {
     subject: `New Themis beta request — ${lead.name}`,
     html: adminNotificationHtml(lead),
     text: adminNotificationText(lead),
+  })
+}
+
+/** Generic templated send: subject/text/html supplied by templates.js. */
+export async function sendTemplated({ to, subject, text, html }) {
+  return send({
+    from: config.resendFrom,
+    to,
+    subject,
+    html,
+    text,
   })
 }
 
