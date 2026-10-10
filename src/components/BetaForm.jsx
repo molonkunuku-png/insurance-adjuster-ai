@@ -125,13 +125,15 @@ export default function BetaForm() {
 
   return (
     <>
-      <span className="inline-flex items-center gap-2 rounded-full bg-[var(--accent-soft)] px-3 py-1 text-[11px] font-medium text-[var(--accent)]">
-        {t('beta.badge', 'Free beta · limited spots')}
-      </span>
-      <h3 className="mt-3 text-xl font-bold tracking-tight">{t('beta.title', 'Become a beta tester')}</h3>
-      <p className="mt-1 text-sm text-[var(--muted)]">
-        {t('beta.sub', 'Get free access in exchange for honest feedback. Takes 20 seconds.')}
-      </p>
+      <div className="text-center">
+        <span className="inline-flex items-center gap-2 rounded-full bg-[var(--accent-soft)] px-3 py-1 text-[11px] font-medium text-[var(--accent)]">
+          {t('beta.badge', 'Free beta · limited spots')}
+        </span>
+        <h3 className="mt-3 text-xl font-bold tracking-tight">{t('beta.title', 'Become a beta tester')}</h3>
+        <p className="mx-auto mt-1 max-w-xs text-sm text-[var(--muted)]">
+          {t('beta.sub', 'Get free access in exchange for honest feedback. Takes 20 seconds.')}
+        </p>
+      </div>
 
       <form onSubmit={submit} className="mt-5 space-y-3">
         <Field label={t('beta.name', 'Name')}>

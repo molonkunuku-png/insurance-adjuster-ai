@@ -454,9 +454,12 @@ function UploadView({ onUpload, onSample, snap, uploadKey, onSnap, onPolicyEvent
         </span>
         <h1 className="mt-5 text-4xl font-extrabold leading-[1.1] tracking-tight sm:text-5xl">
           {lang === 'ms' ? (
-            <span className="bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] bg-clip-text text-transparent">
-              {t('hero.title')}
-            </span>
+            <>
+              {t('hero.titleA', 'Jadikan gambar kerosakan')}{' '}
+              <span className="bg-gradient-to-r from-[var(--accent)] to-[var(--grape)] bg-clip-text text-transparent">
+                {t('hero.titleB', 'draf untuk penyelaras tuntutan.')}
+              </span>
+            </>
           ) : (
             <>
               Turn damage photos into an{' '}

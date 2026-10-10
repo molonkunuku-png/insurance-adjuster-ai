@@ -305,6 +305,8 @@ body::after {
   color: var(--fg);
   padding: 0.55rem 0.75rem;
   font-size: 0.875rem;
+  line-height: 1.4;
+  min-height: 2.5rem;
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -312,6 +314,11 @@ body::after {
 .input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+/* Native selects render shorter than text inputs: lock the same height. */
+select.input {
+  height: 2.5rem;
+  line-height: 1.4;
 }
 
 /* Visible keyboard focus on every interactive element */
